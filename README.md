@@ -1,4 +1,4 @@
-# AutoTech S.A. - UI Kit & Design System (React + Tailwind CSS)
+# AutoTech# AutoTech S.A. - UI Kit & Design System (React + Tailwind CSS)
 
 Bienvenido a la especificación de diseño y arquitectura UI/UX para el sistema web corporativo de gestión de talleres mecánicos **AutoTech S.A.**
 
