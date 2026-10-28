@@ -1,0 +1,58 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  /* BADGES DE NEGOCIO GLOBALES */
+  .badge-green {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-950/70 dark:text-emerald-300 dark:border-emerald-700/80;
+  }
+  
+  .badge-yellow {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-300 dark:bg-amber-950/70 dark:text-amber-300 dark:border-amber-700/80;
+  }
+  
+  .badge-gray {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700;
+  }
+
+  /* SURFACES & CONTAINERS */
+  .card-surface {
+    @apply bg-white dark:bg-[#282832] border border-slate-200 dark:border-[#3A3A48];
+  }
+  
+  .app-input {
+    @apply bg-white dark:bg-[#1E1E24] border border-slate-200 dark:border-[#3A3A48] text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-red-600/30 focus:border-red-600 transition-all;
+  }
+}
+
+/* Repeating delicate car watermark pattern */
+.bg-car-pattern {
+  background-color: #FAF7F7;
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="90" height="40" viewBox="0 0 100 45" fill="%23e8dada"><path d="M12 28 C12 28 14 20 22 18 C30 16 42 8 60 8 C76 8 86 13 92 18 C98 20 100 24 100 28 C100 32 98 34 94 34 C94 34 92 30 84 30 C76 30 74 34 74 34 L32 34 C32 34 30 30 22 30 C14 30 12 34 12 34 C8 34 8 32 12 28 Z M34 18 L54 18 L54 11 C44 11 37 14 34 18 Z M58 11 L58 18 L80 18 C76 13 68 11 58 11 Z" opacity="0.45"/></svg>');
+  background-repeat: repeat;
+  background-size: 90px 40px;
+}
+.dark .bg-car-pattern {
+  background-color: #191922;
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="90" height="40" viewBox="0 0 100 45" fill="%232b2b3a"><path d="M12 28 C12 28 14 20 22 18 C30 16 42 8 60 8 C76 8 86 13 92 18 C98 20 100 24 100 28 C100 32 98 34 94 34 C94 34 92 30 84 30 C76 30 74 34 74 34 L32 34 C32 34 30 30 22 30 C14 30 12 34 12 34 C8 34 8 32 12 28 Z M34 18 L54 18 L54 11 C44 11 37 14 34 18 Z M58 11 L58 18 L80 18 C76 13 68 11 58 11 Z" opacity="0.55"/></svg>');
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.4);
+  border-radius: 9999px;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.4);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(156, 163, 175, 0.7);
+}

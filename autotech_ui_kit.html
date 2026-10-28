@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
@@ -914,27 +914,28 @@
               </h2>
 
               <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <!-- Dropdown Cliente -->
+                <!-- Dropdown Vehículo (Paso Principal) -->
                 <div>
-                  <label class="block text-xs font-bold screen-text mb-1">
-                    Cliente <span class="text-red-600 font-bold">*</span>
+                  <label class="block text-xs font-bold screen-text mb-1 flex items-center justify-between">
+                    <span>Vehículo <span class="text-red-600 font-bold">*</span></span>
+                    <span class="text-[10px] screen-muted">Paso principal</span>
                   </label>
-                  <select class="screen-input w-full px-3 py-2 text-xs rounded-lg border font-medium focus:ring-2 focus:ring-red-500">
-                    <option selected>Transportes Rápido S.R.L. (30-71234567-9)</option>
-                    <option>Agropecuaria El Ombú (30-68994123-4)</option>
-                    <option>Esteban Morales (20-33445566-8)</option>
+                  <select id="recepcion-vehiculo-select" onchange="handleReceptionVehicleChange(this.value)" class="screen-input w-full px-3 py-2 text-xs rounded-lg border font-medium focus:ring-2 focus:ring-red-500">
+                    <option value="AF-123-ZZ" selected>AF-123-ZZ - Toyota Hilux 2.8 D-4D (2022)</option>
+                    <option value="AE-456-CC">AE-456-CC - Mercedes-Benz Sprinter 516 (2021)</option>
+                    <option value="AC-789-DD">AC-789-DD - Volkswagen Amarok V6 3.0 (2020)</option>
+                    <option value="AD-991-LK">AD-991-LK - Ford Ranger 3.2 TDCi (2019)</option>
+                    <option value="AD-332-LM">AD-332-LM - Ford Ranger 3.2 TDCi XLT (2019)</option>
                   </select>
                 </div>
 
-                <!-- Dropdown Vehículo -->
+                <!-- Input Cliente Asociado (Autoseleccionado) -->
                 <div>
-                  <label class="block text-xs font-bold screen-text mb-1">
-                    Vehículo <span class="text-red-600 font-bold">*</span>
+                  <label class="block text-xs font-bold screen-text mb-1 flex items-center justify-between">
+                    <span>Cliente Asociado</span>
+                    <span class="badge-green text-[9px] py-0 px-2 font-bold">✓ Autoseleccionado</span>
                   </label>
-                  <select class="screen-input w-full px-3 py-2 text-xs rounded-lg border font-medium focus:ring-2 focus:ring-red-500">
-                    <option selected>AF-123-ZZ - Toyota Hilux 2.8 D-4D (2022)</option>
-                    <option>AE-456-CC - Mercedes-Benz Sprinter 516 (2021)</option>
-                  </select>
+                  <input id="recepcion-cliente-input" type="text" readonly value="Transportes Rápido S.R.L. (30-71234567-9)" class="screen-input w-full px-3 py-2 text-xs rounded-lg border font-semibold bg-slate-100 dark:bg-slate-800/80 cursor-default">
                 </div>
 
                 <!-- Kilometraje -->
@@ -942,7 +943,7 @@
                   <label class="block text-xs font-bold screen-text mb-1">
                     Kilometraje de Entrada <span class="text-red-600 font-bold">*</span>
                   </label>
-                  <input type="number" value="64200" class="screen-input w-full px-3 py-2 text-xs rounded-lg border font-mono font-medium focus:ring-2 focus:ring-red-500">
+                  <input id="recepcion-km-input" type="number" value="64200" class="screen-input w-full px-3 py-2 text-xs rounded-lg border font-mono font-medium focus:ring-2 focus:ring-red-500">
                 </div>
               </div>
             </div>
@@ -1735,6 +1736,21 @@
       });
 
       renderView();
+    }
+
+    function handleReceptionVehicleChange(plate) {
+      const mapping = {
+        'AF-123-ZZ': { client: 'Transportes Rápido S.R.L. (30-71234567-9)', km: 64200 },
+        'AE-456-CC': { client: 'Transportes Rápido S.R.L. (30-71234567-9)', km: 112500 },
+        'AC-789-DD': { client: 'Transportes Rápido S.R.L. (30-71234567-9)', km: 89000 },
+        'AD-991-LK': { client: 'Agropecuaria El Ombú (30-68994123-4)', km: 104000 },
+        'AD-332-LM': { client: 'Esteban Morales (20-33445566-8)', km: 98400 }
+      };
+      const data = mapping[plate] || { client: 'Cliente Registrado', km: 0 };
+      const clientInputs = document.querySelectorAll('#recepcion-cliente-input');
+      clientInputs.forEach(i => i.value = data.client);
+      const kmInputs = document.querySelectorAll('#recepcion-km-input');
+      kmInputs.forEach(i => i.value = data.km);
     }
 
     function toggleThemeQuick() {

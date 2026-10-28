@@ -1,13 +1,23 @@
 /**
- * AutoTech S.A. - UI Kit Components & Tokens Export
+ * AutoTech S.A. - React Frontend Root Exports
  */
 
 export * from './theme/tokens';
 export * from './types/autotech';
-export * from './components/ui/Badge';
-export * from './components/ui/Button';
-export * from './components/ui/Alert';
-export * from './components/ui/Modal';
+export * from './context/WorkshopContext';
+
+// Layout
 export * from './components/layout/Header';
 export * from './components/layout/Sidebar';
-export * from './components/screens/Login';
+export * from './components/layout/MainLayout';
+
+// Screens
+export * from './screens/LoginScreen';
+export * from './screens/DashboardScreen';
+export * from './screens/ComercialScreen';
+export * from './screens/RecepcionScreen';
+export * from './screens/OperativaScreen';
+export * from './screens/SupervisionScreen';
+export * from './screens/InventarioScreen';
+
+export { default as App } from './App';
