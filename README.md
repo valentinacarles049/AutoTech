@@ -10,13 +10,18 @@ Diseñada con enfoque en **alta densidad de información (ERP)**, arquitectura m
 
 El proyecto está configurado con **Vite**, **React 18**, **TypeScript** y **Tailwind CSS**.
 
-### 1. Iniciar servidor de desarrollo:
+### 1. Instalar dependencias:
+```bash
+npm install
+```
+
+### 2. Iniciar servidor de desarrollo:
 ```bash
 npm run dev
 ```
 La aplicación se abrirá en `http://localhost:3000/`.
 
-### 2. Compilar para producción (Build):
+### 3. Compilar para producción (Build):
 ```bash
 npm run build
 ```
