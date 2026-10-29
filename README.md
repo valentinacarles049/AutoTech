@@ -172,5 +172,12 @@ El proyecto incluye el esquema SQL listo para inicializar la base de datos: [`au
   - Endpoint `POST /api/auth/logout` que elimina la cookie de autenticación del navegador (`res.clearCookie('auth_token')`).
   - Limpieza de credenciales y estado reactivo en frontend.
   - Bloqueo de acceso: cualquier intento de entrar a cualquier pantalla sin autenticación redirige inmediatamente a la pantalla de login.
+- **HU-03 Restringir funciones según el rol del usuario**:
+  - Matriz de control de acceso basada en roles (RBAC) para los 6 actores del Diagrama de CU.
+  - El menú lateral (`Sidebar`) filtra y muestra **únicamente** las opciones habilitadas para el rol del usuario autenticado.
+  - Redirección automática al módulo asignado al iniciar sesión.
+  - Pantalla protectora **"Acceso denegado"** (Error 403) ante intentos de ingresar a URLs o funciones protegidas sin permiso.
+  - Middleware en el backend (`requireRole`) que valida permisos por rol y responde con 403 Forbidden.
+
 
 

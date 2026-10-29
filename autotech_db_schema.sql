@@ -213,25 +213,41 @@ ALTER TABLE presupuestos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE empleados ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Lectura pública clientes" ON clientes;
 CREATE POLICY "Lectura pública clientes" ON clientes FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Inserción pública clientes" ON clientes;
 CREATE POLICY "Inserción pública clientes" ON clientes FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Actualización clientes" ON clientes;
 CREATE POLICY "Actualización clientes" ON clientes FOR UPDATE USING (true);
 
+DROP POLICY IF EXISTS "Lectura pública vehiculos" ON vehiculos;
 CREATE POLICY "Lectura pública vehiculos" ON vehiculos FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Inserción pública vehiculos" ON vehiculos;
 CREATE POLICY "Inserción pública vehiculos" ON vehiculos FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Actualización vehiculos" ON vehiculos;
 CREATE POLICY "Actualización vehiculos" ON vehiculos FOR UPDATE USING (true);
 
+DROP POLICY IF EXISTS "Lectura pública turnos" ON turnos;
 CREATE POLICY "Lectura pública turnos" ON turnos FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Inserción pública turnos" ON turnos;
 CREATE POLICY "Inserción pública turnos" ON turnos FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Actualización turnos" ON turnos;
 CREATE POLICY "Actualización turnos" ON turnos FOR UPDATE USING (true);
 
+DROP POLICY IF EXISTS "Lectura pública estado_turnos" ON estado_turnos;
 CREATE POLICY "Lectura pública estado_turnos" ON estado_turnos FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Lectura pública presupuestos" ON presupuestos;
 CREATE POLICY "Lectura pública presupuestos" ON presupuestos FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Inserción pública presupuestos" ON presupuestos;
 CREATE POLICY "Inserción pública presupuestos" ON presupuestos FOR INSERT WITH CHECK (true);
 
+DROP POLICY IF EXISTS "Lectura pública roles" ON roles;
 CREATE POLICY "Lectura pública roles" ON roles FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Lectura pública empleados" ON empleados;
 CREATE POLICY "Lectura pública empleados" ON empleados FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Inserción pública empleados" ON empleados;
 CREATE POLICY "Inserción pública empleados" ON empleados FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Actualización empleados" ON empleados;
 CREATE POLICY "Actualización empleados" ON empleados FOR UPDATE USING (true);
 
 
@@ -246,41 +262,43 @@ DECLARE
   cli3_id UUID;
   turno1_id UUID;
 BEGIN
-  -- Insertar Clientes
-  INSERT INTO clientes (tipo_documento, nro_documento, razon_social, email, telefono)
-  VALUES ('CUIT', '30-71234567-9', 'Transportes Rápido S.R.L.', 'contacto@transportesrapido.com.ar', '0351-4889900')
-  RETURNING id INTO cli1_id;
+  -- Insertar Clientes si no existen
+  IF NOT EXISTS (SELECT 1 FROM clientes WHERE nro_documento = '30-71234567-9') THEN
+    INSERT INTO clientes (tipo_documento, nro_documento, razon_social, email, telefono)
+    VALUES ('CUIT', '30-71234567-9', 'Transportes Rápido S.R.L.', 'contacto@transportesrapido.com.ar', '0351-4889900')
+    RETURNING id INTO cli1_id;
 
-  INSERT INTO clientes (tipo_documento, nro_documento, razon_social, email, telefono)
-  VALUES ('CUIT', '30-68994123-4', 'Agropecuaria El Ombú', 'administracion@elombu.com.ar', '0353-4123456')
-  RETURNING id INTO cli2_id;
+    INSERT INTO clientes (tipo_documento, nro_documento, razon_social, email, telefono)
+    VALUES ('CUIT', '30-68994123-4', 'Agropecuaria El Ombú', 'administracion@elombu.com.ar', '0353-4123456')
+    RETURNING id INTO cli2_id;
 
-  INSERT INTO clientes (tipo_documento, nro_documento, razon_social, email, telefono)
-  VALUES ('DNI', '20-33445566-8', 'Esteban Morales', 'esteban.morales@gmail.com', '0351-155987654')
-  RETURNING id INTO cli3_id;
+    INSERT INTO clientes (tipo_documento, nro_documento, razon_social, email, telefono)
+    VALUES ('DNI', '20-33445566-8', 'Esteban Morales', 'esteban.morales@gmail.com', '0351-155987654')
+    RETURNING id INTO cli3_id;
 
-  -- Insertar Vehículos asociados
-  INSERT INTO vehiculos (dominio, cliente_id, marca, modelo, anio, kilometraje_actual)
-  VALUES 
-  ('AF-123-ZZ', cli1_id, 'Toyota', 'Hilux 2.8 D-4D', 2022, 64200),
-  ('AE-456-CC', cli1_id, 'Mercedes-Benz', 'Sprinter 516', 2021, 112500),
-  ('AC-789-DD', cli1_id, 'Volkswagen', 'Amarok V6 3.0', 2020, 89000),
-  ('AD-991-LK', cli2_id, 'Ford', 'Ranger 3.2 TDCi Limited', 2019, 104000),
-  ('AD-332-LM', cli3_id, 'Ford', 'Ranger 3.2 TDCi XLT', 2019, 98400);
+    -- Insertar Vehículos asociados
+    INSERT INTO vehiculos (dominio, cliente_id, marca, modelo, anio, kilometraje_actual)
+    VALUES 
+    ('AF-123-ZZ', cli1_id, 'Toyota', 'Hilux 2.8 D-4D', 2022, 64200),
+    ('AE-456-CC', cli1_id, 'Mercedes-Benz', 'Sprinter 516', 2021, 112500),
+    ('AC-789-DD', cli1_id, 'Volkswagen', 'Amarok V6 3.0', 2020, 89000),
+    ('AD-991-LK', cli2_id, 'Ford', 'Ranger 3.2 TDCi Limited', 2019, 104000),
+    ('AD-332-LM', cli3_id, 'Ford', 'Ranger 3.2 TDCi XLT', 2019, 98400);
 
-  -- Insertar Turno Inicial
-  INSERT INTO turnos (vehiculo_dominio, estado_turno_id, fecha_hora_propuesta, motivo_consulta, es_emergencia)
-  VALUES ('AF-123-ZZ', 1, NOW() + INTERVAL '1 day', 'Service programado 60.000km y pastillas de freno', FALSE)
-  RETURNING id INTO turno1_id;
+    -- Insertar Turno Inicial
+    INSERT INTO turnos (vehiculo_dominio, estado_turno_id, fecha_hora_propuesta, motivo_consulta, es_emergencia)
+    VALUES ('AF-123-ZZ', 1, NOW() + INTERVAL '1 day', 'Service programado 60.000km y pastillas de freno', FALSE)
+    RETURNING id INTO turno1_id;
 
-  -- Insertar Presupuesto Inicial
-  INSERT INTO presupuestos (nro_presupuesto, turno_id, monto_estimado, validez_dias)
-  VALUES ('PRES-2026-001', turno1_id, 322465.00, 7);
+    -- Insertar Presupuesto Inicial
+    INSERT INTO presupuestos (nro_presupuesto, turno_id, monto_estimado, validez_dias)
+    VALUES ('PRES-2026-001', turno1_id, 322465.00, 7);
+  END IF;
 
-  -- Insertar Empleados Iniciales (HU-01: Contraseñas hasheadas con bcrypt, campos activo y ultimo_acceso)
+  -- Insertar o actualizar Empleados Iniciales (Contraseñas hasheadas con bcrypt, campos activo y ultimo_acceso)
   INSERT INTO empleados (legajo, username, password, nombre, rol_id, activo, ultimo_acceso)
   VALUES 
-  (1001, 'valen.recepcion', crypt('password123', gen_salt('bf', 8)), 'Valentina Castro', (SELECT id FROM roles WHERE nombre_rol = 'Responsable de Recepción'), TRUE, NULL),
+  (1001, 'valen.recepcion', crypt('password123', gen_salt('bf', 8)), 'Valentina Carles', (SELECT id FROM roles WHERE nombre_rol = 'Responsable de Recepción'), TRUE, NULL),
   (1002, 'carlos.atencion', crypt('password123', gen_salt('bf', 8)), 'Carlos Pérez', (SELECT id FROM roles WHERE nombre_rol = 'Responsable de Atención al Cliente'), TRUE, NULL),
   (1003, 'roberto.mecanico', crypt('password123', gen_salt('bf', 8)), 'Roberto Gómez', (SELECT id FROM roles WHERE nombre_rol = 'Responsable de Reparación (mecánico)'), TRUE, NULL),
   (1004, 'marcelo.jefe', crypt('password123', gen_salt('bf', 8)), 'Marcelo Fernández', (SELECT id FROM roles WHERE nombre_rol = 'Responsable de Taller (jefe de taller)'), TRUE, NULL),

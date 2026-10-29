@@ -1,8 +1,21 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Client, Vehicle, WorkOrder, SparePartItem, BudgetServiceItem, Empleado, RoleName } from '../types/autotech';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { getDefaultScreenForRole, isScreenAllowed } from '../utils/permissions';
 
 export type ScreenId = 'dashboard' | 'comercial' | 'recepcion' | 'operativa' | 'supervision' | 'inventario';
+
+// Función para sincronizar la pantalla con la URL del navegador (HU-03 Criterio 2)
+const getScreenFromUrl = (): ScreenId | null => {
+  if (typeof window === 'undefined') return null;
+  const path = window.location.pathname.replace(/^\/+/, '').toLowerCase();
+  const hash = window.location.hash.replace(/^#\/?/, '').toLowerCase();
+  const validScreens: ScreenId[] = ['dashboard', 'comercial', 'recepcion', 'operativa', 'supervision', 'inventario'];
+
+  if (validScreens.includes(path as ScreenId)) return path as ScreenId;
+  if (validScreens.includes(hash as ScreenId)) return hash as ScreenId;
+  return null;
+};
 
 export interface User {
   legajo: number;
@@ -25,7 +38,7 @@ export const initialEmployees: Empleado[] = [
     legajo: 1001,
     username: 'valen.recepcion',
     password: 'password123',
-    nombre: 'Valentina Castro',
+    nombre: 'Valentina Carles',
     rol: 'Responsable de Recepción',
     activo: true,
   },
@@ -255,7 +268,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // Auth state & Empleados
   const [employees, setEmployees] = useState<Empleado[]>(initialEmployees);
   const [user, setUser] = useState<User | null>(() => {
-    const saved = localStorage.getItem('autotech_session');
+    const saved = typeof window !== 'undefined' ? localStorage.getItem('autotech_session') : null;
     if (saved) {
       try {
         return JSON.parse(saved);
@@ -263,14 +276,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         return null;
       }
     }
-    return {
-      legajo: 1001,
-      username: 'valen.recepcion',
-      name: 'Valentina Castro',
-      role: 'Responsable de Recepción',
-      avatar: 'VC',
-      email: 'valen.recepcion@autotech.com.ar'
-    };
+    return null;
   });
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     return localStorage.getItem('autotech_session') !== null;
@@ -315,7 +321,9 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setUser(authUser);
         setIsAuthenticated(true);
         localStorage.setItem('autotech_session', JSON.stringify(authUser));
-        setCurrentScreen('dashboard'); // Sin restricción de roles
+        // HU-03: Redirigir a la pantalla inicial habilitada para su rol
+        const defaultScreen = getDefaultScreenForRole(authUser.role);
+        setCurrentScreen(defaultScreen);
         return { success: true, user: authUser };
       }
     } catch {
@@ -350,7 +358,8 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           setUser(authUser);
           setIsAuthenticated(true);
           localStorage.setItem('autotech_session', JSON.stringify(authUser));
-          setCurrentScreen('dashboard'); // Sin restricción de roles
+          const defaultScreen = getDefaultScreenForRole(authUser.role);
+          setCurrentScreen(defaultScreen);
           return { success: true, user: authUser };
         }
       } catch (err) {
@@ -394,7 +403,8 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             setUser(authUser);
             setIsAuthenticated(true);
             localStorage.setItem('autotech_session', JSON.stringify(authUser));
-            setCurrentScreen('dashboard'); // Sin restricción de roles
+            const defaultScreen = getDefaultScreenForRole(roleName);
+            setCurrentScreen(defaultScreen);
             return { success: true, user: authUser };
           } else {
             return { success: false, error: 'Usuario o contraseña incorrectos' };
@@ -441,7 +451,9 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setUser(authUser);
     setIsAuthenticated(true);
     localStorage.setItem('autotech_session', JSON.stringify(authUser));
-    setCurrentScreen('dashboard'); // Sin restricción de roles
+    // HU-03: Redirigir a la pantalla inicial habilitada para su rol
+    const defaultScreen = getDefaultScreenForRole(authUser.role);
+    setCurrentScreen(defaultScreen);
 
     return { success: true, user: authUser };
   };
@@ -468,7 +480,10 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     localStorage.removeItem('autotech_session');
     setUser(null);
     setIsAuthenticated(false);
-    setCurrentScreen('dashboard');
+    if (typeof window !== 'undefined') {
+      window.history.pushState(null, '', '/');
+    }
+    setCurrentScreenState('dashboard');
   };
 
   // HU-02: Verificación de sesión mediante cookie al cargar la aplicación
@@ -494,6 +509,10 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             setUser(authUser);
             setIsAuthenticated(true);
             localStorage.setItem('autotech_session', JSON.stringify(authUser));
+            const fromUrl = getScreenFromUrl();
+            if (!fromUrl || !isScreenAllowed(fromUrl, authUser.role)) {
+              setCurrentScreen(getDefaultScreenForRole(authUser.role));
+            }
             return;
           }
         } else if (response.status === 401) {
@@ -510,8 +529,51 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     verifyCookieSession();
   }, []);
 
-  // Screen navigation state
-  const [currentScreen, setCurrentScreen] = useState<ScreenId>('comercial');
+  // Screen navigation state con sincronización de URL (HU-03 Criterio 2)
+  const [currentScreen, setCurrentScreenState] = useState<ScreenId>(() => {
+    const fromUrl = getScreenFromUrl();
+    if (fromUrl) return fromUrl;
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('autotech_session');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (parsed?.role) {
+            return getDefaultScreenForRole(parsed.role);
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+    return 'dashboard';
+  });
+
+  const setCurrentScreen = (screen: ScreenId) => {
+    setCurrentScreenState(screen);
+    if (typeof window !== 'undefined') {
+      const targetPath = `/${screen}`;
+      if (window.location.pathname !== targetPath) {
+        window.history.pushState(null, '', targetPath);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleUrlChange = () => {
+      const fromUrl = getScreenFromUrl();
+      if (fromUrl) {
+        setCurrentScreenState(fromUrl);
+      }
+    };
+    window.addEventListener('popstate', handleUrlChange);
+    window.addEventListener('hashchange', handleUrlChange);
+    return () => {
+      window.removeEventListener('popstate', handleUrlChange);
+      window.removeEventListener('hashchange', handleUrlChange);
+    };
+  }, []);
 
   // Clients state
   const [clients, setClients] = useState<Client[]>(initialClients);

@@ -8,10 +8,11 @@ import {
   Boxes 
 } from 'lucide-react';
 import { useWorkshop, ScreenId } from '../../context/WorkshopContext';
+import { getAllowedScreens, getDefaultScreenForRole } from '../../utils/permissions';
 import logoImg from '../../assets/logo.png';
 
 export const Sidebar: React.FC = () => {
-  const { currentScreen, setCurrentScreen } = useWorkshop();
+  const { currentScreen, setCurrentScreen, user } = useWorkshop();
 
   const navigationItems: { id: ScreenId; label: string; icon: React.ReactNode }[] = [
     {
@@ -46,13 +47,19 @@ export const Sidebar: React.FC = () => {
     },
   ];
 
+  // HU-03 Criterio 3: El menú muestra sólo las opciones habilitadas para el rol
+  const allowedScreens = getAllowedScreens(user?.role);
+  const visibleItems = navigationItems.filter(item => allowedScreens.includes(item.id));
+  const defaultScreen = getDefaultScreenForRole(user?.role);
+
   return (
     <aside className="w-60 flex-shrink-0 bg-white dark:bg-[#1E1E24] border-r border-slate-200 dark:border-[#3A3A48] flex flex-col justify-between py-4 px-3 select-none transition-colors">
       <div className="space-y-6">
         {/* LOGO CORPORATIVO OFICIAL EN TARJETA */}
         <div 
-          onClick={() => setCurrentScreen('dashboard')}
+          onClick={() => setCurrentScreen(defaultScreen)}
           className="flex items-center space-x-2.5 px-2 py-1.5 rounded-xl cursor-pointer hover:bg-slate-50 dark:hover:bg-[#282832] transition-colors"
+          title={`Ir a ${defaultScreen}`}
         >
           <div className="h-10 w-10 bg-white rounded-xl p-1.5 flex items-center justify-center shadow-sm border border-slate-200 flex-shrink-0">
             <img src={logoImg} alt="AutoTech S.A." className="h-full w-auto object-contain" />
@@ -67,12 +74,17 @@ export const Sidebar: React.FC = () => {
           </div>
         </div>
 
-        {/* 5 MÓDULOS DE NAVEGACIÓN GLOBAL */}
+        {/* MÓDULOS DE NAVEGACIÓN SEGÚN ROL */}
         <nav className="space-y-1">
-          <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-2">
-            Módulos del Sistema
-          </p>
-          {navigationItems.map((item) => {
+          <div className="px-3 mb-2 flex items-center justify-between">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+              Módulos Habilitados
+            </span>
+            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-[#282832] text-slate-500 dark:text-slate-400">
+              {visibleItems.length}
+            </span>
+          </div>
+          {visibleItems.map((item) => {
             const isActive = currentScreen === item.id;
             return (
               <button

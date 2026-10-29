@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useWorkshop } from './context/WorkshopContext';
 import { LoginScreen } from './screens/LoginScreen';
 import { MainLayout } from './components/layout/MainLayout';
@@ -8,18 +8,56 @@ import { RecepcionScreen } from './screens/RecepcionScreen';
 import { OperativaScreen } from './screens/OperativaScreen';
 import { SupervisionScreen } from './screens/SupervisionScreen';
 import { InventarioScreen } from './screens/InventarioScreen';
+import { AccessDeniedScreen } from './screens/AccessDeniedScreen';
+import { isScreenAllowed, getDefaultScreenForRole } from './utils/permissions';
 
 export const AppContent: React.FC = () => {
-  const { isAuthenticated, currentScreen } = useWorkshop();
+  const { isAuthenticated, currentScreen, setCurrentScreen, user } = useWorkshop();
+
+  // Redirigir automáticamente a la pantalla inicial del rol si el usuario no tiene acceso a la pantalla actual
+  // (por ejemplo, al iniciar sesión o al ingresar a la raíz "/")
+  useEffect(() => {
+    if (isAuthenticated && user?.role) {
+      if (!isScreenAllowed(currentScreen, user.role)) {
+        const fromUrl = typeof window !== 'undefined' ? window.location.pathname.replace(/^\/+/, '').toLowerCase() : '';
+        if (!fromUrl || fromUrl === 'dashboard') {
+          const defaultScreen = getDefaultScreenForRole(user.role);
+          setCurrentScreen(defaultScreen);
+        }
+      }
+    }
+  }, [isAuthenticated, user?.role, currentScreen, setCurrentScreen]);
 
   // If not authenticated, show the Login screen
   if (!isAuthenticated) {
     return <LoginScreen />;
   }
 
+  const fromUrl = typeof window !== 'undefined' ? window.location.pathname.replace(/^\/+/, '').toLowerCase() : '';
+  const isUnauthorizedDefault = (!fromUrl || fromUrl === 'dashboard') && !isScreenAllowed(currentScreen, user?.role);
+
+  // Un usuario sin permiso que accede explícitamente a una URL protegida ve "Acceso denegado"
+  if (!isScreenAllowed(currentScreen, user?.role) && !isUnauthorizedDefault) {
+    return (
+      <MainLayout
+        title="Acceso Denegado"
+        subtitle="Módulo no habilitado para tu perfil"
+        badge={
+          <span className="hidden md:inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20">
+            ● 403 Restringido
+          </span>
+        }
+      >
+        <AccessDeniedScreen requestedScreen={currentScreen} />
+      </MainLayout>
+    );
+  }
+
   // Active Screen Metadata
+  const activeScreen = isUnauthorizedDefault ? getDefaultScreenForRole(user?.role) : currentScreen;
+
   const getScreenMeta = () => {
-    switch (currentScreen) {
+    switch (activeScreen) {
       case 'dashboard':
         return {
           title: 'Resumen Gerencial del Taller',

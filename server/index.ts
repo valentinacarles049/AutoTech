@@ -46,7 +46,7 @@ app.get('/api/health', (req, res) => {
 app.listen(PORT, () => {
   console.log('====================================================');
   console.log(`🚀 Servidor Backend AutoTech escuchando en: http://localhost:${PORT}`);
-  console.log(`📡 Endpoint HU-01 Login: POST http://localhost:${PORT}/api/auth/login`);
+  console.log(`📡 Endpoint Login:         POST http://localhost:${PORT}/api/auth/login`);
   console.log(`🩺 Health Check:         GET  http://localhost:${PORT}/api/health`);
   console.log('====================================================');
 });

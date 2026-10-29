@@ -33,7 +33,7 @@ export const localEmployeesSeed: LocalEmployee[] = [
     legajo: 1001,
     username: 'valen.recepcion',
     password: defaultHashedPassword,
-    nombre: 'Valentina Castro',
+    nombre: 'Valentina Carles',
     rol: 'Responsable de Recepción',
     activo: true,
     ultimo_acceso: null

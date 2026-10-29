@@ -19,5 +19,8 @@ export * from './screens/RecepcionScreen';
 export * from './screens/OperativaScreen';
 export * from './screens/SupervisionScreen';
 export * from './screens/InventarioScreen';
+export * from './screens/AccessDeniedScreen';
+
+export * from './utils/permissions';
 
 export { default as App } from './App';
