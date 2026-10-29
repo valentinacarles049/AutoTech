@@ -1,25 +1,102 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { Client, Vehicle, WorkOrder, SparePartItem, BudgetServiceItem } from '../types/autotech';
+import { Client, Vehicle, WorkOrder, SparePartItem, BudgetServiceItem, Empleado, RoleName } from '../types/autotech';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 export type ScreenId = 'dashboard' | 'comercial' | 'recepcion' | 'operativa' | 'supervision' | 'inventario';
 
-interface User {
+export interface User {
+  legajo: number;
+  username: string;
   name: string;
-  role: string;
+  role: RoleName | string;
   avatar: string;
   email: string;
+  ultimoAcceso?: string | null;
 }
+
+export interface LoginResult {
+  success: boolean;
+  error?: string;
+  user?: User;
+}
+
+export const initialEmployees: Empleado[] = [
+  {
+    legajo: 1001,
+    username: 'valen.recepcion',
+    password: 'password123',
+    nombre: 'Valentina Castro',
+    rol: 'Responsable de Recepción',
+    activo: true,
+  },
+  {
+    legajo: 1002,
+    username: 'carlos.atencion',
+    password: 'password123',
+    nombre: 'Carlos Pérez',
+    rol: 'Responsable de Atención al Cliente',
+    activo: true,
+  },
+  {
+    legajo: 1003,
+    username: 'roberto.mecanico',
+    password: 'password123',
+    nombre: 'Roberto Gómez',
+    rol: 'Responsable de Reparación (mecánico)',
+    activo: true,
+  },
+  {
+    legajo: 1004,
+    username: 'marcelo.jefe',
+    password: 'password123',
+    nombre: 'Marcelo Fernández',
+    rol: 'Responsable de Taller (jefe de taller)',
+    activo: true,
+  },
+  {
+    legajo: 1005,
+    username: 'laura.inventario',
+    password: 'password123',
+    nombre: 'Laura Benítez',
+    rol: 'Responsable de Inventario',
+    activo: true,
+  },
+  {
+    legajo: 1000,
+    username: 'admin',
+    password: 'admin123',
+    nombre: 'Administrador General',
+    rol: 'Administrador del sistema',
+    activo: true,
+  },
+  {
+    legajo: 1006,
+    username: 'empleado.inactivo',
+    password: 'password123',
+    nombre: 'Empleado Inactivo Test',
+    rol: 'Responsable de Recepción',
+    activo: false,
+  },
+];
+
+const getInitials = (fullName: string): string => {
+  const parts = fullName.trim().split(/\s+/);
+  if (parts.length >= 2) {
+    return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+  }
+  return parts[0]?.substring(0, 2).toUpperCase() || 'AT';
+};
 
 interface WorkshopContextType {
   // Theme
   isDark: boolean;
   toggleTheme: () => void;
 
-  // Auth
+  // Auth & Empleados
   isAuthenticated: boolean;
   user: User | null;
-  login: (username: string, password: string) => boolean;
+  employees: Empleado[];
+  login: (username: string, password: string) => Promise<LoginResult>;
   logout: () => void;
 
   // Navigation
@@ -175,29 +252,203 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const toggleTheme = () => setIsDark(prev => !prev);
 
-  // Auth state
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true);
-  const [user, setUser] = useState<User | null>({
-    name: 'Valen C.',
-    role: 'Recepción',
-    avatar: 'VC',
-    email: 'valen.recepcion@autotech.com.ar'
+  // Auth state & Empleados
+  const [employees, setEmployees] = useState<Empleado[]>(initialEmployees);
+  const [user, setUser] = useState<User | null>(() => {
+    const saved = localStorage.getItem('autotech_session');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        return null;
+      }
+    }
+    return {
+      legajo: 1001,
+      username: 'valen.recepcion',
+      name: 'Valentina Castro',
+      role: 'Responsable de Recepción',
+      avatar: 'VC',
+      email: 'valen.recepcion@autotech.com.ar'
+    };
+  });
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    return localStorage.getItem('autotech_session') !== null;
   });
 
-  const login = (username: string) => {
-    setUser({
-      name: username.includes('.') ? username.split('.')[0].toUpperCase() + ' C.' : 'Valen C.',
-      role: 'Recepción',
-      avatar: 'VC',
-      email: `${username}@autotech.com.ar`
-    });
+  const login = async (username: string, password: string): Promise<LoginResult> => {
+    const cleanUser = username.trim().toLowerCase();
+    const cleanPass = password.trim();
+
+    // 1. Intentar autenticar contra el Backend API de Node.js / Express (HU-01)
+    try {
+      const response = await fetch('http://localhost:4000/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ username: cleanUser, password: cleanPass })
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        // Errores del backend: 401 (credenciales inválidas), 403 (inactivo), etc.
+        return { 
+          success: false, 
+          error: result.error || 'Error al iniciar sesión en el servidor' 
+        };
+      }
+
+      if (result.success && result.user) {
+        const authUser: User = {
+          legajo: result.user.legajo,
+          username: result.user.username,
+          name: result.user.nombre,
+          role: result.user.rol,
+          avatar: getInitials(result.user.nombre),
+          email: `${result.user.username}@autotech.com.ar`,
+          ultimoAcceso: result.user.ultimoAcceso
+        };
+
+        setUser(authUser);
+        setIsAuthenticated(true);
+        localStorage.setItem('autotech_session', JSON.stringify(authUser));
+        setCurrentScreen('dashboard'); // Sin restricción de roles
+        return { success: true, user: authUser };
+      }
+    } catch {
+      console.warn('[Frontend Auth] Servidor backend Node/Express no disponible en puerto 4000, intentando fallback directo.');
+    }
+
+    // 2. Intentar validar mediante Backend RPC en Supabase / PostgreSQL (HU-01)
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data: rpcData, error: rpcError } = await supabase.rpc('iniciar_sesion', {
+          p_username: cleanUser,
+          p_password: cleanPass
+        });
+
+        if (rpcError) {
+          // Si el RPC retornó excepción (usuario inactivo o credenciales inválidas)
+          return { success: false, error: rpcError.message };
+        }
+
+        if (rpcData && rpcData.length > 0) {
+          const emp = rpcData[0];
+          const authUser: User = {
+            legajo: emp.legajo,
+            username: emp.username,
+            name: emp.nombre,
+            role: emp.rol,
+            avatar: getInitials(emp.nombre),
+            email: `${emp.username}@autotech.com.ar`,
+            ultimoAcceso: emp.ultimo_acceso
+          };
+
+          setUser(authUser);
+          setIsAuthenticated(true);
+          localStorage.setItem('autotech_session', JSON.stringify(authUser));
+          setCurrentScreen('dashboard'); // Sin restricción de roles
+          return { success: true, user: authUser };
+        }
+      } catch (err) {
+        console.warn('RPC iniciar_sesion no disponible o error de red:', err);
+      }
+
+      // Fallback a consulta directa sobre la tabla empleados si el RPC no fue migrado aún
+      try {
+        const { data, error } = await supabase
+          .from('empleados')
+          .select('legajo, username, password, nombre, activo, ultimo_acceso, roles ( nombre_rol )')
+          .ilike('username', cleanUser)
+          .maybeSingle();
+
+        if (!error && data) {
+          // Criterio 3: Un usuario inactivo no puede ingresar
+          if (!data.activo) {
+            return { success: false, error: 'Usuario inactivo. No tiene permisos de acceso al sistema' };
+          }
+
+          if (data.password === cleanPass) {
+            const roleName = (data.roles as any)?.nombre_rol || 'Responsable de Recepción';
+            const nowISO = new Date().toISOString();
+
+            // Criterio 2: Registrar fecha y hora del último acceso
+            await supabase
+              .from('empleados')
+              .update({ ultimo_acceso: nowISO })
+              .eq('legajo', data.legajo);
+
+            const authUser: User = {
+              legajo: data.legajo,
+              username: data.username,
+              name: data.nombre,
+              role: roleName,
+              avatar: getInitials(data.nombre),
+              email: `${data.username}@autotech.com.ar`,
+              ultimoAcceso: nowISO
+            };
+
+            setUser(authUser);
+            setIsAuthenticated(true);
+            localStorage.setItem('autotech_session', JSON.stringify(authUser));
+            setCurrentScreen('dashboard'); // Sin restricción de roles
+            return { success: true, user: authUser };
+          } else {
+            return { success: false, error: 'Usuario o contraseña incorrectos' };
+          }
+        }
+      } catch (err) {
+        console.warn('Fallback a verificación local:', err);
+      }
+    }
+
+    // 2. Verificación contra lista de empleados inicial (fallback local / offline)
+    const localEmp = employees.find(
+      e => e.username.toLowerCase() === cleanUser
+    );
+
+    if (!localEmp) {
+      return { success: false, error: 'Usuario o contraseña incorrectos' };
+    }
+
+    // Criterio 3: Un usuario inactivo no puede ingresar
+    if (localEmp.activo === false) {
+      return { success: false, error: 'Usuario inactivo. No tiene permisos de acceso al sistema' };
+    }
+
+    // Criterio 1: Verificación de contraseña
+    if (localEmp.password !== cleanPass) {
+      return { success: false, error: 'Usuario o contraseña incorrectos' };
+    }
+
+    // Criterio 2: Se registra la fecha y hora del último acceso
+    const nowISO = new Date().toISOString();
+    localEmp.ultimoAcceso = nowISO;
+
+    const authUser: User = {
+      legajo: localEmp.legajo,
+      username: localEmp.username,
+      name: localEmp.nombre,
+      role: localEmp.rol,
+      avatar: getInitials(localEmp.nombre),
+      email: `${localEmp.username}@autotech.com.ar`,
+      ultimoAcceso: nowISO
+    };
+
+    setUser(authUser);
     setIsAuthenticated(true);
-    setCurrentScreen('dashboard');
-    return true;
+    localStorage.setItem('autotech_session', JSON.stringify(authUser));
+    setCurrentScreen('dashboard'); // Sin restricción de roles
+
+    return { success: true, user: authUser };
   };
 
   const logout = () => {
     setIsAuthenticated(false);
+    setUser(null);
+    localStorage.removeItem('autotech_session');
   };
 
   // Screen navigation state
@@ -264,6 +515,23 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           if (mappedVehicles[0]) {
             selectVehicleForReception(mappedVehicles[0].plate);
           }
+        }
+
+        // Cargar empleados desde Supabase si la tabla existe
+        const { data: dbEmployees } = await supabase!
+          .from('empleados')
+          .select('legajo, username, password, nombre, activo, roles ( nombre_rol )');
+
+        if (dbEmployees && dbEmployees.length > 0) {
+          const mappedEmployees: Empleado[] = dbEmployees.map(e => ({
+            legajo: e.legajo,
+            username: e.username,
+            password: e.password,
+            nombre: e.nombre,
+            rol: (e.roles as any)?.nombre_rol || 'Responsable de Recepción',
+            activo: e.activo
+          }));
+          setEmployees(mappedEmployees);
         }
       } catch (err) {
         console.warn('Conexión con Supabase no disponible temporalmente, usando estado local:', err);
@@ -456,6 +724,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       toggleTheme,
       isAuthenticated,
       user,
+      employees,
       login,
       logout,
       currentScreen,

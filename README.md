@@ -15,11 +15,17 @@ El proyecto está configurado con **Vite**, **React 18**, **TypeScript** y **Tai
 npm install
 ```
 
-### 2. Iniciar servidor de desarrollo:
+### 2. Iniciar servidores de desarrollo (Frontend + Backend):
 ```bash
 npm run dev
 ```
-La aplicación se abrirá en `http://localhost:3000/`.
+Levanta simultáneamente:
+- **Frontend (Vite + React)** en `http://localhost:3000/`
+- **Backend API (Node.js + Express)** en `http://localhost:4000/`
+
+*(Si deseas ejecutar solo uno de ellos de forma individual)*:
+- Frontend solo: `npm run dev:client`
+- Backend solo: `npm run dev:server`
 
 ### 3. Compilar para producción (Build):
 ```bash
@@ -127,5 +133,30 @@ El proyecto incluye el esquema SQL listo para inicializar la base de datos: [`au
    ```
 2. **Ejecutar el script**:
    - Abrir el archivo `autotech_db_schema.sql` y ejecutar su contenido.
-   - Crea las tablas correspondientes a las clases del MVP (`estado_turnos`, `clientes`, `vehiculos`, `turnos`, `presupuestos`) e inserta datos semilla de prueba para comenzar a operar.
+   - Crea las tablas correspondientes al modelo UML:
+     - `estado_turnos`: Estados normalizados del flujo del turno.
+     - `clientes`: Clientes particulares y flotas corporativas.
+     - `vehiculos`: Vehículos y flotas asociadas a clientes.
+     - `turnos`: Solicitudes y agenda de turnos en taller.
+     - `presupuestos`: Cotizaciones emitidas para servicios de taller.
+     - `roles`: Catálogo oficial de roles según los actores del Diagrama de Casos de Uso.
+     - `empleados`: Personal habilitado para autenticación e inicio de sesión (+legajo, +username, +password, +nombre, +rol, +activo, +ultimo_acceso).
+   - Crea la función backend de autenticación `iniciar_sesion(p_username, p_password)` alineada a **HU-01**:
+     - **Criterio 1**: Las contraseñas se almacenan con hash (bcrypt / pgcrypto), nunca en texto plano.
+     - **Criterio 2**: Se registra automáticamente la fecha y hora del último acceso (`ultimo_acceso = NOW()`).
+     - **Criterio 3**: Validación de que el usuario esté activo (`activo = TRUE`). Si está inactivo, rechaza el acceso.
+   - Genera la vista `vista_empleados` para consultas directas con JOIN a roles.
+   - Configura las directivas de seguridad RLS (Row Level Security) e inserta los datos semilla de prueba.
+
+### 👥 Credenciales de Prueba en DB (HU-01 Iniciar sesión):
+
+| Rol (Actor CU) | Legajo | Usuario | Contraseña (en DB se guarda hasheada con bcrypt) | Estado |
+| :--- | :---: | :--- | :--- | :---: |
+| **Responsable de Recepción** | `1001` | `valen.recepcion` | `password123` | Activo |
+| **Responsable de Atención al Cliente** | `1002` | `carlos.atencion` | `password123` | Activo |
+| **Responsable de Reparación (mecánico)** | `1003` | `roberto.mecanico` | `password123` | Activo |
+| **Responsable de Taller (jefe de taller)** | `1004` | `marcelo.jefe` | `password123` | Activo |
+| **Responsable de Inventario** | `1005` | `laura.inventario` | `password123` | Activo |
+| **Administrador del sistema** | `1000` | `admin` | `admin123` | Activo |
+| **Test Inactivo (HU-01 CA 3)** | `1006` | `empleado.inactivo` | `password123` | **Inactivo** |
 

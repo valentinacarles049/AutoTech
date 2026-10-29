@@ -64,13 +64,16 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-emerald-500 ring-1 ring-white dark:ring-[#1E1E24]" />
           </div>
           <div className="text-left leading-tight hidden xs:block sm:block">
-            <p className="text-xs font-bold text-slate-900 dark:text-white">
-              {user?.name || 'Valen C.'} <span className="text-slate-400 font-normal">-</span>{' '}
-              <span className="text-slate-500 dark:text-slate-400 font-medium">{user?.role || 'Recepción'}</span>
+            <p className="text-xs font-bold text-slate-900 dark:text-white flex items-center space-x-1.5">
+              <span>{user?.name || 'Valen C.'}</span>
+              {user?.legajo && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-mono font-normal">
+                  Leg. #{user.legajo}
+                </span>
+              )}
             </p>
-            <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block mr-1" />
-              En línea
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium truncate max-w-[210px]" title={user?.role}>
+              {user?.role || 'Recepción'}
             </p>
           </div>
         </div>

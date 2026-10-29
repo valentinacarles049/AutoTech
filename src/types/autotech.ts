@@ -85,6 +85,37 @@ export interface Presupuesto {
   validezDias: number; // Ej: 7 días, 15 días
 }
 
+// ==========================================
+// 6. ROL (UML: Rol / Actores del Diagrama de Casos de Uso)
+// ==========================================
+export type RoleName = 
+  | 'Responsable de Atención al Cliente'
+  | 'Responsable de Recepción'
+  | 'Responsable de Reparación (mecánico)'
+  | 'Responsable de Taller (jefe de taller)'
+  | 'Responsable de Inventario'
+  | 'Administrador del sistema';
+
+export interface Rol {
+  id: number;
+  nombreRol: RoleName | string;
+  descripcion?: string;
+}
+
+// ==========================================
+// 7. EMPLEADO (UML: Empleado - legajo, username, password, nombre, rol)
+// ==========================================
+export interface Empleado {
+  legajo: number;
+  username: string;
+  password?: string;
+  nombre: string;
+  rol: RoleName | string;
+  rolId?: number;
+  activo?: boolean;
+  ultimoAcceso?: string | null;
+}
+
 export interface BudgetServiceItem {
   id: string;
   description: string;

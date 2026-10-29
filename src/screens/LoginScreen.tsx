@@ -1,18 +1,32 @@
 import React, { useState } from 'react';
-import { LogIn, Eye, EyeOff, CheckCircle2 } from 'lucide-react';
+import { LogIn, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { useWorkshop } from '../context/WorkshopContext';
 import logoImg from '../assets/logo.png';
 import carImg from '../assets/car.png';
 
 export const LoginScreen: React.FC = () => {
   const { login, isDark } = useWorkshop();
-  const [usuario, setUsuario] = useState('valen.recepcion');
-  const [contrasena, setContrasena] = useState('password123');
+  const [usuario, setUsuario] = useState('');
+  const [contrasena, setContrasena] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    login(usuario, contrasena);
+    setErrorMsg(null);
+    setIsLoading(true);
+
+    try {
+      const res = await login(usuario, contrasena);
+      if (!res.success) {
+        setErrorMsg(res.error || 'Credenciales inválidas');
+      }
+    } catch {
+      setErrorMsg('Ocurrió un error al intentar iniciar sesión');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -96,16 +110,23 @@ export const LoginScreen: React.FC = () => {
           <div className={`w-full max-w-sm rounded-3xl p-8 sm:p-9 shadow-xl border my-auto transition-all ${
             isDark ? 'bg-[#22222C] border-[#313142]' : 'bg-white border-slate-200/80'
           }`}>
-            <div className="mb-6">
+            <div className="mb-5">
               <h1 className={`text-2xl sm:text-[26px] font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
                 Iniciar sesión
               </h1>
-              <p className={`text-xs mt-1.5 font-normal ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                Ingresá con tu usuario de empleado
+              <p className={`text-xs mt-1 font-normal ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                Ingresá con tu usuario de empleado y rol asignado
               </p>
             </div>
 
-            <form className="space-y-4" onSubmit={handleSubmit}>
+            {errorMsg && (
+              <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 text-xs flex items-center space-x-2 animate-fadeIn">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <span className="font-medium">{errorMsg}</span>
+              </div>
+            )}
+
+            <form className="space-y-3.5" onSubmit={handleSubmit}>
               <div>
                 <label className={`block text-xs font-bold mb-1.5 ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>
                   Usuario <span className="text-red-600 font-bold">*</span>
@@ -120,7 +141,7 @@ export const LoginScreen: React.FC = () => {
                     type="text"
                     value={usuario}
                     onChange={(e) => setUsuario(e.target.value)}
-                    placeholder="ej: agente01"
+                    placeholder="ej: valen.recepcion"
                     className={`w-full pl-10 pr-3.5 py-2.5 text-xs rounded-xl border font-medium focus:outline-none focus:ring-2 focus:ring-red-600/30 focus:border-red-600 transition-all ${
                       isDark 
                         ? 'bg-[#1A1A22] border-[#313142] text-white placeholder-slate-500' 
@@ -165,17 +186,27 @@ export const LoginScreen: React.FC = () => {
                 </div>
               </div>
 
-              <div className="pt-2">
+              <div className="pt-1.5">
                 <button
                   type="submit"
-                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-[#DC2626] to-[#B91C1C] hover:from-[#B91C1C] hover:to-[#991B1B] text-white text-xs sm:text-sm font-bold shadow-lg shadow-red-600/30 hover:shadow-red-600/50 transition-all flex items-center justify-center space-x-2 active:scale-[0.98]"
+                  disabled={isLoading}
+                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-[#DC2626] to-[#B91C1C] hover:from-[#B91C1C] hover:to-[#991B1B] text-white text-xs sm:text-sm font-bold shadow-lg shadow-red-600/30 hover:shadow-red-600/50 transition-all flex items-center justify-center space-x-2 active:scale-[0.98] disabled:opacity-60 cursor-pointer"
                 >
-                  <span>Ingresar al sistema</span>
-                  <LogIn className="w-4 h-4" />
+                  {isLoading ? (
+                    <span className="flex items-center space-x-2">
+                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <span>Verificando credenciales...</span>
+                    </span>
+                  ) : (
+                    <>
+                      <span>Ingresar al sistema</span>
+                      <LogIn className="w-4 h-4" />
+                    </>
+                  )}
                 </button>
               </div>
 
-              <div className="flex items-center justify-between pt-1">
+              <div className="flex items-center justify-between pt-2">
                 <span className={`text-[11px] font-semibold ${isDark ? 'text-red-400' : 'text-red-600'}`}>
                   AutoTech S.A.
                 </span>
