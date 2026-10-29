@@ -280,13 +280,14 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const cleanUser = username.trim().toLowerCase();
     const cleanPass = password.trim();
 
-    // 1. Intentar autenticar contra el Backend API de Node.js / Express (HU-01)
+    // 1. Intentar autenticar contra el Backend API de Node.js / Express (HU-01 y HU-02)
     try {
       const response = await fetch('http://localhost:4000/api/auth/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
+        credentials: 'include', // Para recibir y guardar la cookie de autenticación
         body: JSON.stringify({ username: cleanUser, password: cleanPass })
       });
 
@@ -445,11 +446,69 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return { success: true, user: authUser };
   };
 
-  const logout = () => {
-    setIsAuthenticated(false);
-    setUser(null);
+  const logout = async () => {
+    // HU-02 Criterio 1: Al cerrar sesión se elimina la cookie de autenticación en el servidor
+    try {
+      await fetch('http://localhost:4000/api/auth/logout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include'
+      });
+    } catch (err) {
+      console.warn('[Frontend Auth] Error contactando endpoint de logout en backend:', err);
+    }
+
+    // Limpieza de cookies en el cliente
+    document.cookie = 'auth_token=; Max-Age=0; path=/;';
+    document.cookie = 'session_active=; Max-Age=0; path=/;';
+
+    // HU-02 Criterio 2: Después de cerrar sesión, acceder a cualquier pantalla redirige al login
     localStorage.removeItem('autotech_session');
+    setUser(null);
+    setIsAuthenticated(false);
+    setCurrentScreen('dashboard');
   };
+
+  // HU-02: Verificación de sesión mediante cookie al cargar la aplicación
+  useEffect(() => {
+    async function verifyCookieSession() {
+      try {
+        const response = await fetch('http://localhost:4000/api/auth/me', {
+          credentials: 'include'
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.authenticated && data.user) {
+            const authUser: User = {
+              legajo: data.user.legajo,
+              username: data.user.username,
+              name: data.user.nombre,
+              role: data.user.rol,
+              avatar: getInitials(data.user.nombre),
+              email: `${data.user.username}@autotech.com.ar`,
+              ultimoAcceso: data.user.ultimoAcceso
+            };
+            setUser(authUser);
+            setIsAuthenticated(true);
+            localStorage.setItem('autotech_session', JSON.stringify(authUser));
+            return;
+          }
+        } else if (response.status === 401) {
+          // Si el servidor indica que no hay cookie, asegurar que redirija a Login
+          setIsAuthenticated(false);
+          setUser(null);
+          localStorage.removeItem('autotech_session');
+        }
+      } catch {
+        // Servidor no disponible en desarrollo offline
+      }
+    }
+
+    verifyCookieSession();
+  }, []);
 
   // Screen navigation state
   const [currentScreen, setCurrentScreen] = useState<ScreenId>('comercial');

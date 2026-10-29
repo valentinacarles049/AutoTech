@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import authRoutes from './routes/auth.routes';
 import { isSupabaseConnected } from './db';
@@ -10,8 +11,12 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 
 // Middlewares globales
-app.use(cors());
+app.use(cors({
+  origin: ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:5173'],
+  credentials: true
+}));
 app.use(express.json());
+app.use(cookieParser());
 
 // Logging simple de peticiones en consola
 app.use((req, res, next) => {

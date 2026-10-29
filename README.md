@@ -148,7 +148,7 @@ El proyecto incluye el esquema SQL listo para inicializar la base de datos: [`au
    - Genera la vista `vista_empleados` para consultas directas con JOIN a roles.
    - Configura las directivas de seguridad RLS (Row Level Security) e inserta los datos semilla de prueba.
 
-### 👥 Credenciales de Prueba en DB (HU-01 Iniciar sesión):
+### 👥 Credenciales de Prueba en DB (HU-01 Iniciar sesión / HU-02 Cerrar sesión):
 
 | Rol (Actor CU) | Legajo | Usuario | Contraseña (en DB se guarda hasheada con bcrypt) | Estado |
 | :--- | :---: | :--- | :--- | :---: |
@@ -159,4 +159,18 @@ El proyecto incluye el esquema SQL listo para inicializar la base de datos: [`au
 | **Responsable de Inventario** | `1005` | `laura.inventario` | `password123` | Activo |
 | **Administrador del sistema** | `1000` | `admin` | `admin123` | Activo |
 | **Test Inactivo (HU-01 CA 3)** | `1006` | `empleado.inactivo` | `password123` | **Inactivo** |
+
+---
+
+### 🔒 Historias de Usuario Implementadas:
+- **HU-01 Iniciar sesión**:
+  - Contraseñas protegidas mediante hash bcrypt.
+  - Registro de fecha y hora del último acceso (`ultimo_acceso`).
+  - Bloqueo de acceso a empleados inactivos.
+  - Emisión de cookie segura de autenticación `auth_token`.
+- **HU-02 Cerrar sesión**:
+  - Endpoint `POST /api/auth/logout` que elimina la cookie de autenticación del navegador (`res.clearCookie('auth_token')`).
+  - Limpieza de credenciales y estado reactivo en frontend.
+  - Bloqueo de acceso: cualquier intento de entrar a cualquier pantalla sin autenticación redirige inmediatamente a la pantalla de login.
+
 
