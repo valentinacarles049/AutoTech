@@ -4,6 +4,7 @@ import { LoginScreen } from './screens/LoginScreen';
 import { MainLayout } from './components/layout/MainLayout';
 import { DashboardScreen } from './screens/DashboardScreen';
 import { ComercialScreen } from './screens/ComercialScreen';
+import { NuevoClienteScreen } from './screens/NuevoClienteScreen';
 import { RecepcionScreen } from './screens/RecepcionScreen';
 import { OperativaScreen } from './screens/OperativaScreen';
 import { SupervisionScreen } from './screens/SupervisionScreen';
@@ -79,6 +80,17 @@ export const AppContent: React.FC = () => {
             </span>
           ),
           component: <ComercialScreen />,
+        };
+      case 'nuevo-cliente':
+        return {
+          title: 'Nuevo cliente',
+          subtitle: 'Registro de datos personales, fiscales y contacto',
+          badge: (
+            <span className="hidden md:inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20">
+              ● Atención al Cliente
+            </span>
+          ),
+          component: <NuevoClienteScreen />,
         };
       case 'recepcion':
         return {

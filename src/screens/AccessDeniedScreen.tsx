@@ -10,6 +10,7 @@ interface AccessDeniedScreenProps {
 const screenDisplayNames: Record<ScreenId, string> = {
   dashboard: 'Dashboard General (Métricas Gerenciales)',
   comercial: 'Módulo Comercial (Clientes y Flotas)',
+  'nuevo-cliente': 'Nuevo cliente (Alta y Registro de Clientes)',
   recepcion: 'Módulo de Recepción (Turnos y Presupuestos)',
   operativa: 'Operativa Taller (Terminal de Mecánica)',
   supervision: 'Supervisión & Calidad (Jefe de Taller)',
