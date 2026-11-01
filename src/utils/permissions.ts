@@ -16,13 +16,15 @@ export const ROLE_PERMISSIONS: Record<RoleName, ScreenId[]> = {
   'Administrador del sistema': [
     'dashboard',
     'comercial',
+    'nuevo-cliente',
     'recepcion',
     'operativa',
     'supervision',
     'inventario'
   ],
   'Responsable de Atención al Cliente': [
-    'comercial'
+    'comercial',
+    'nuevo-cliente'
   ],
   'Responsable de Recepción': [
     'recepcion'
@@ -51,6 +53,7 @@ export const getAllowedScreens = (role?: string | null): ScreenId[] => {
     return [
       'dashboard',
       'comercial',
+      'nuevo-cliente',
       'recepcion',
       'operativa',
       'supervision',
@@ -60,7 +63,7 @@ export const getAllowedScreens = (role?: string | null): ScreenId[] => {
 
   // 2. Responsable de Atención al Cliente
   if (normalized.includes('atención') || normalized.includes('atencion')) {
-    return ['comercial'];
+    return ['comercial', 'nuevo-cliente'];
   }
 
   // 3. Responsable de Recepción

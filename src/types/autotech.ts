@@ -8,22 +8,25 @@ export type StatusGray = 'Cancelado' | 'Inactivo';
 export type WorkshopStatus = StatusGreen | StatusYellow | StatusGray;
 
 // ==========================================
-// 1. CLIENTE (UML MVP: nroDoc, tipoDoc, razonSocial, email, telefono, fechaAlta)
+// 1. CLIENTE (UML MVP & HU-04: Registrar Cliente)
 // ==========================================
 export interface Client {
   id: string;
-  name: string;
-  cuitDni: string;
-  phone: string;
-  email?: string;
+  nroCliente?: number; // Número de cliente generado por el sistema
+  nombre: string; // Obligatorio
+  apellido: string; // Obligatorio
+  name: string; // Nombre completo o Razón Social para display
+  tipoDocumento: 'DNI' | 'CUIT' | 'Pasaporte'; // Obligatorio
+  nroDocumento: string; // Obligatorio
+  cuitDni: string; // Compatibilidad de búsqueda
+  email: string; // Obligatorio, formato válido
+  phone: string; // Obligatorio
+  telefono?: string;
+  razonSocial?: string; // Opcional (clientes empresa)
+  localidad?: string; // Localidad
+  nivelFidelizacion?: string | null; // Queda sin nivel de fidelización asignado (null)
   vehicleCount: number;
   status: 'Activo' | 'Inactivo';
-
-  // Atributos UML Oficiales MVP
-  razonSocial?: string;
-  tipoDocumento?: 'DNI' | 'CUIT' | 'Pasaporte';
-  nroDocumento?: string;
-  telefono?: string;
   fechaAlta?: string;
 }
 

@@ -178,6 +178,17 @@ El proyecto incluye el esquema SQL listo para inicializar la base de datos: [`au
   - Redirección automática al módulo asignado al iniciar sesión.
   - Pantalla protectora **"Acceso denegado"** (Error 403) ante intentos de ingresar a URLs o funciones protegidas sin permiso.
   - Middleware en el backend (`requireRole`) que valida permisos por rol y responde con 403 Forbidden.
+- **HU-04 Registrar cliente**:
+  - **Rol**: Responsable de Atención al Cliente (`carlos.atencion`).
+  - **Pantalla**: *"Nuevo cliente"* (`/nuevo-cliente`), accesible exclusivamente desde el botón *"+ Nuevo Cliente"* en el módulo Comercial.
+  - **Criterio 1**: Campos obligatorios validados (`nombre`, `apellido`, `tipo_documento`, `numero_documento`, `mail` y `teléfono`).
+  - **Criterio 2**: Razón social opcional para empresas o personas jurídicas.
+  - **Criterio 3**: Validación unívoca que impide duplicar la combinación de tipo y número de documento (`UNIQUE (tipo_documento, nro_documento)`), retornando el mensaje: *"Ya existe un cliente con ese tipo y número de documento"*.
+  - **Criterio 4**: Validación estricta de formato de correo electrónico (`RFC`).
+  - **Asignación automática**: Registro con un número de cliente autoincremental (`nro_cliente`), confirmación con el mensaje *"Cliente registrado correctamente"* y asignación inicial sin nivel de fidelización (`nivel_fidelizacion = NULL`).
+  - **Base de Datos**: Tabla `clientes` actualizada y procedimiento almacenado PostgreSQL `registrar_cliente(...)`.
+  - **API Backend**: Endpoints `POST /api/clientes` (protegido con `requireRole`), `GET /api/clientes` y `GET /api/clientes/verificar-doc`.
+
 
 
 

@@ -30,14 +30,43 @@ ON CONFLICT (descripcion_estado) DO NOTHING;
 -- 2. TABLA: CLIENTES (UML: Cliente)
 CREATE TABLE IF NOT EXISTS clientes (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  tipo_documento VARCHAR(20) NOT NULL DEFAULT 'CUIT', -- DNI, CUIT, Pasaporte
-  nro_documento VARCHAR(30) NOT NULL UNIQUE,
-  razon_social VARCHAR(150) NOT NULL, -- Nombre y Apellido o Razón Social
-  email VARCHAR(120),
-  telefono VARCHAR(50) NOT NULL,
+  nro_cliente SERIAL, -- Número de cliente autoincremental generado por el sistema
+  nombre VARCHAR(100) NOT NULL, -- Obligatorio
+  apellido VARCHAR(100) NOT NULL, -- Obligatorio
+  tipo_documento VARCHAR(20) NOT NULL DEFAULT 'DNI', -- DNI, CUIT, Pasaporte (Obligatorio)
+  nro_documento VARCHAR(30) NOT NULL, -- Obligatorio
+  razon_social VARCHAR(150), -- Opcional (clientes empresa)
+  email VARCHAR(120) NOT NULL, -- Obligatorio (formato válido)
+  telefono VARCHAR(50) NOT NULL, -- Obligatorio
+  localidad VARCHAR(100), -- Localidad del cliente
+  nivel_fidelizacion VARCHAR(50) DEFAULT NULL, -- Queda sin nivel de fidelización asignado al inicio
   fecha_alta DATE NOT NULL DEFAULT CURRENT_DATE,
-  estado VARCHAR(20) DEFAULT 'Activo'
+  estado VARCHAR(20) DEFAULT 'Activo',
+  CONSTRAINT uk_clientes_tipo_nro_doc UNIQUE (tipo_documento, nro_documento)
 );
+
+-- Compatibilidad para bases de datos existentes
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='clientes' AND column_name='nombre') THEN
+    ALTER TABLE clientes ADD COLUMN nombre VARCHAR(100);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='clientes' AND column_name='apellido') THEN
+    ALTER TABLE clientes ADD COLUMN apellido VARCHAR(100);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='clientes' AND column_name='nro_cliente') THEN
+    ALTER TABLE clientes ADD COLUMN nro_cliente SERIAL;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='clientes' AND column_name='localidad') THEN
+    ALTER TABLE clientes ADD COLUMN localidad VARCHAR(100);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='clientes' AND column_name='nivel_fidelizacion') THEN
+    ALTER TABLE clientes ADD COLUMN nivel_fidelizacion VARCHAR(50) DEFAULT NULL;
+  END IF;
+  -- Hacer razon_social opcional si anteriormente era NOT NULL
+  ALTER TABLE clientes ALTER COLUMN razon_social DROP NOT NULL;
+END $$;
+
 
 
 -- 3. TABLA: VEHÍCULOS (UML: Vehiculo)
@@ -202,6 +231,123 @@ GRANT EXECUTE ON FUNCTION iniciar_sesion(VARCHAR, VARCHAR) TO anon, authenticate
 
 
 -- ============================================================
+-- PROCEDIMIENTO ALMACENADO: REGISTRAR CLIENTE (HU-04)
+-- Implementa los 4 criterios de aceptación:
+-- 1. Campos obligatorios: nombre, apellido, tipo y número de documento, mail y teléfono
+-- 2. Razón social opcional (clientes empresa)
+-- 3. No se permite duplicar tipo y número de documento
+-- 4. El mail debe tener formato válido
+-- ============================================================
+CREATE OR REPLACE FUNCTION registrar_cliente(
+  p_nombre VARCHAR,
+  p_apellido VARCHAR,
+  p_tipo_documento VARCHAR,
+  p_nro_documento VARCHAR,
+  p_email VARCHAR,
+  p_telefono VARCHAR,
+  p_razon_social VARCHAR DEFAULT NULL,
+  p_localidad VARCHAR DEFAULT NULL
+)
+RETURNS TABLE (
+  id UUID,
+  nro_cliente INT,
+  nombre VARCHAR,
+  apellido VARCHAR,
+  tipo_documento VARCHAR,
+  nro_documento VARCHAR,
+  razon_social VARCHAR,
+  email VARCHAR,
+  telefono VARCHAR,
+  localidad VARCHAR,
+  nivel_fidelizacion VARCHAR,
+  mensaje VARCHAR
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_new_id UUID;
+  v_nro_cliente INT;
+  v_clean_tipo VARCHAR;
+  v_clean_nro VARCHAR;
+  v_clean_email VARCHAR;
+BEGIN
+  -- 1. Validación de campos obligatorios
+  IF p_nombre IS NULL OR TRIM(p_nombre) = '' OR
+     p_apellido IS NULL OR TRIM(p_apellido) = '' OR
+     p_tipo_documento IS NULL OR TRIM(p_tipo_documento) = '' OR
+     p_nro_documento IS NULL OR TRIM(p_nro_documento) = '' OR
+     p_email IS NULL OR TRIM(p_email) = '' OR
+     p_telefono IS NULL OR TRIM(p_telefono) = '' THEN
+    RAISE EXCEPTION 'Los campos nombre, apellido, tipo y número de documento, mail y teléfono son obligatorios';
+  END IF;
+
+  v_clean_tipo := UPPER(TRIM(p_tipo_documento));
+  v_clean_nro := TRIM(p_nro_documento);
+  v_clean_email := LOWER(TRIM(p_email));
+
+  -- 2. Validación de formato de email (RFC)
+  IF NOT (v_clean_email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$') THEN
+    RAISE EXCEPTION 'El mail debe tener formato válido';
+  END IF;
+
+  -- 3. Criterio de aceptación: No se permite duplicar tipo y número de documento
+  IF EXISTS (
+    SELECT 1 FROM clientes 
+    WHERE UPPER(clientes.tipo_documento) = v_clean_tipo 
+      AND clientes.nro_documento = v_clean_nro
+  ) THEN
+    RAISE EXCEPTION 'Ya existe un cliente con ese tipo y número de documento';
+  END IF;
+
+  -- 4. Inserción del cliente (queda sin nivel de fidelización asignado)
+  INSERT INTO clientes (
+    nombre,
+    apellido,
+    tipo_documento,
+    nro_documento,
+    razon_social,
+    email,
+    telefono,
+    localidad,
+    nivel_fidelizacion,
+    estado
+  ) VALUES (
+    TRIM(p_nombre),
+    TRIM(p_apellido),
+    v_clean_tipo,
+    v_clean_nro,
+    NULLIF(TRIM(p_razon_social), ''),
+    v_clean_email,
+    TRIM(p_telefono),
+    NULLIF(TRIM(p_localidad), ''),
+    NULL, -- Sin nivel de fidelización asignado
+    'Activo'
+  )
+  RETURNING clientes.id, clientes.nro_cliente INTO v_new_id, v_nro_cliente;
+
+  -- 5. Retornar el cliente registrado con el mensaje de confirmación
+  RETURN QUERY
+  SELECT 
+    v_new_id,
+    v_nro_cliente,
+    TRIM(p_nombre)::VARCHAR,
+    TRIM(p_apellido)::VARCHAR,
+    v_clean_tipo::VARCHAR,
+    v_clean_nro::VARCHAR,
+    NULLIF(TRIM(p_razon_social), '')::VARCHAR,
+    v_clean_email::VARCHAR,
+    TRIM(p_telefono)::VARCHAR,
+    NULLIF(TRIM(p_localidad), '')::VARCHAR,
+    NULL::VARCHAR AS nivel_fidelizacion,
+    'Cliente registrado correctamente'::VARCHAR AS mensaje;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION registrar_cliente(VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR) TO anon, authenticated, postgres;
+
+
+-- ============================================================
 -- POLÍTICAS DE ACCESO (ROW LEVEL SECURITY - RLS)
 -- Permitir lectura y escritura para la aplicación cliente
 -- ============================================================
@@ -264,16 +410,16 @@ DECLARE
 BEGIN
   -- Insertar Clientes si no existen
   IF NOT EXISTS (SELECT 1 FROM clientes WHERE nro_documento = '30-71234567-9') THEN
-    INSERT INTO clientes (tipo_documento, nro_documento, razon_social, email, telefono)
-    VALUES ('CUIT', '30-71234567-9', 'Transportes Rápido S.R.L.', 'contacto@transportesrapido.com.ar', '0351-4889900')
+    INSERT INTO clientes (nombre, apellido, tipo_documento, nro_documento, razon_social, email, telefono, localidad, nivel_fidelizacion)
+    VALUES ('Transportes', 'Rápido', 'CUIT', '30-71234567-9', 'Transportes Rápido S.R.L.', 'contacto@transportesrapido.com.ar', '0351-4889900', 'Córdoba Capital', NULL)
     RETURNING id INTO cli1_id;
 
-    INSERT INTO clientes (tipo_documento, nro_documento, razon_social, email, telefono)
-    VALUES ('CUIT', '30-68994123-4', 'Agropecuaria El Ombú', 'administracion@elombu.com.ar', '0353-4123456')
+    INSERT INTO clientes (nombre, apellido, tipo_documento, nro_documento, razon_social, email, telefono, localidad, nivel_fidelizacion)
+    VALUES ('Agropecuaria', 'El Ombú', 'CUIT', '30-68994123-4', 'Agropecuaria El Ombú', 'administracion@elombu.com.ar', '0353-4123456', 'Villa María', NULL)
     RETURNING id INTO cli2_id;
 
-    INSERT INTO clientes (tipo_documento, nro_documento, razon_social, email, telefono)
-    VALUES ('DNI', '20-33445566-8', 'Esteban Morales', 'esteban.morales@gmail.com', '0351-155987654')
+    INSERT INTO clientes (nombre, apellido, tipo_documento, nro_documento, razon_social, email, telefono, localidad, nivel_fidelizacion)
+    VALUES ('Esteban', 'Morales', 'DNI', '20-33445566-8', NULL, 'esteban.morales@gmail.com', '0351-155987654', 'Córdoba Capital', NULL)
     RETURNING id INTO cli3_id;
 
     -- Insertar Vehículos asociados

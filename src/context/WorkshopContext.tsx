@@ -3,14 +3,14 @@ import { Client, Vehicle, WorkOrder, SparePartItem, BudgetServiceItem, Empleado,
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { getDefaultScreenForRole, isScreenAllowed } from '../utils/permissions';
 
-export type ScreenId = 'dashboard' | 'comercial' | 'recepcion' | 'operativa' | 'supervision' | 'inventario';
+export type ScreenId = 'dashboard' | 'comercial' | 'nuevo-cliente' | 'recepcion' | 'operativa' | 'supervision' | 'inventario';
 
 // Función para sincronizar la pantalla con la URL del navegador (HU-03 Criterio 2)
 const getScreenFromUrl = (): ScreenId | null => {
   if (typeof window === 'undefined') return null;
   const path = window.location.pathname.replace(/^\/+/, '').toLowerCase();
   const hash = window.location.hash.replace(/^#\/?/, '').toLowerCase();
-  const validScreens: ScreenId[] = ['dashboard', 'comercial', 'recepcion', 'operativa', 'supervision', 'inventario'];
+  const validScreens: ScreenId[] = ['dashboard', 'comercial', 'nuevo-cliente', 'recepcion', 'operativa', 'supervision', 'inventario'];
 
   if (validScreens.includes(path as ScreenId)) return path as ScreenId;
   if (validScreens.includes(hash as ScreenId)) return hash as ScreenId;
@@ -120,7 +120,7 @@ interface WorkshopContextType {
   clients: Client[];
   selectedClientId: string;
   setSelectedClientId: (id: string) => void;
-  addClient: (client: Omit<Client, 'id' | 'vehicleCount' | 'status'>) => void;
+  addClient: (client: Omit<Client, 'id' | 'vehicleCount' | 'status'>) => Promise<{ success: boolean; error?: string; message?: string; client?: Client }>;
   vehicles: Vehicle[];
   addVehicle: (vehicle: Omit<Vehicle, 'status'>) => void;
 
@@ -151,11 +151,90 @@ interface WorkshopContextType {
 }
 
 const initialClients: Client[] = [
-  { id: 'cli-1', name: 'Transportes Rápido S.R.L.', cuitDni: '30-71234567-9', phone: '0351-4889900', vehicleCount: 8, status: 'Activo' },
-  { id: 'cli-2', name: 'Agropecuaria El Ombú', cuitDni: '30-68994123-4', phone: '0353-4123456', vehicleCount: 4, status: 'Activo' },
-  { id: 'cli-3', name: 'Esteban Morales', cuitDni: '20-33445566-8', phone: '0351-155987654', vehicleCount: 1, status: 'Activo' },
-  { id: 'cli-4', name: 'Logística Centro S.A.', cuitDni: '30-55443322-1', phone: '0351-4771122', vehicleCount: 12, status: 'Activo' },
-  { id: 'cli-5', name: 'Distribuidora Norte S.A.', cuitDni: '30-44998877-3', phone: '0351-4990033', vehicleCount: 0, status: 'Inactivo' },
+  {
+    id: 'cli-1',
+    nroCliente: 1001,
+    nombre: 'Transportes',
+    apellido: 'Rápido',
+    name: 'Transportes Rápido S.R.L.',
+    razonSocial: 'Transportes Rápido S.R.L.',
+    tipoDocumento: 'CUIT',
+    nroDocumento: '30-71234567-9',
+    cuitDni: '30-71234567-9',
+    email: 'contacto@transportesrapido.com.ar',
+    phone: '0351-4889900',
+    localidad: 'Córdoba Capital',
+    nivelFidelizacion: null, // Queda sin nivel de fidelización asignado
+    vehicleCount: 8,
+    status: 'Activo'
+  },
+  {
+    id: 'cli-2',
+    nroCliente: 1002,
+    nombre: 'Agropecuaria',
+    apellido: 'El Ombú',
+    name: 'Agropecuaria El Ombú',
+    razonSocial: 'Agropecuaria El Ombú',
+    tipoDocumento: 'CUIT',
+    nroDocumento: '30-68994123-4',
+    cuitDni: '30-68994123-4',
+    email: 'administracion@elombu.com.ar',
+    phone: '0353-4123456',
+    localidad: 'Villa María',
+    nivelFidelizacion: null,
+    vehicleCount: 4,
+    status: 'Activo'
+  },
+  {
+    id: 'cli-3',
+    nroCliente: 1003,
+    nombre: 'Esteban',
+    apellido: 'Morales',
+    name: 'Esteban Morales',
+    tipoDocumento: 'DNI',
+    nroDocumento: '20-33445566-8',
+    cuitDni: '20-33445566-8',
+    email: 'esteban.morales@gmail.com',
+    phone: '0351-155987654',
+    localidad: 'Córdoba Capital',
+    nivelFidelizacion: null,
+    vehicleCount: 1,
+    status: 'Activo'
+  },
+  {
+    id: 'cli-4',
+    nroCliente: 1004,
+    nombre: 'Logística',
+    apellido: 'Centro',
+    name: 'Logística Centro S.A.',
+    razonSocial: 'Logística Centro S.A.',
+    tipoDocumento: 'CUIT',
+    nroDocumento: '30-55443322-1',
+    cuitDni: '30-55443322-1',
+    email: 'logistica@centro.com.ar',
+    phone: '0351-4771122',
+    localidad: 'Córdoba Capital',
+    nivelFidelizacion: null,
+    vehicleCount: 12,
+    status: 'Activo'
+  },
+  {
+    id: 'cli-5',
+    nroCliente: 1005,
+    nombre: 'Distribuidora',
+    apellido: 'Norte',
+    name: 'Distribuidora Norte S.A.',
+    razonSocial: 'Distribuidora Norte S.A.',
+    tipoDocumento: 'CUIT',
+    nroDocumento: '30-44998877-3',
+    cuitDni: '30-44998877-3',
+    email: 'ventas@distribuidoranorte.com.ar',
+    phone: '0351-4990033',
+    localidad: 'Río Cuarto',
+    nivelFidelizacion: null,
+    vehicleCount: 0,
+    status: 'Inactivo'
+  },
 ];
 
 const initialVehicles: Vehicle[] = [
@@ -596,20 +675,29 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           .select('*');
 
         if (dbClients && dbClients.length > 0) {
-          const mappedClients: Client[] = dbClients.map(c => ({
-            id: c.id,
-            name: c.razon_social,
-            razonSocial: c.razon_social,
-            cuitDni: c.nro_documento,
-            nroDocumento: c.nro_documento,
-            tipoDocumento: c.tipo_documento || 'CUIT',
-            phone: c.telefono,
-            telefono: c.telefono,
-            email: c.email || undefined,
-            fechaAlta: c.fecha_alta,
-            vehicleCount: (dbVehicles || []).filter(v => v.cliente_id === c.id).length,
-            status: c.estado === 'Inactivo' ? 'Inactivo' : 'Activo'
-          }));
+          const mappedClients: Client[] = dbClients.map(c => {
+            const fallbackNombre = c.nombre || (c.razon_social ? c.razon_social.split(' ')[0] : 'Cliente');
+            const fallbackApellido = c.apellido || (c.razon_social ? c.razon_social.split(' ').slice(1).join(' ') || 'AutoTech' : 'AutoTech');
+            return {
+              id: c.id,
+              nroCliente: c.nro_cliente,
+              nombre: fallbackNombre,
+              apellido: fallbackApellido,
+              name: c.razon_social || `${fallbackNombre} ${fallbackApellido}`,
+              razonSocial: c.razon_social || undefined,
+              cuitDni: c.nro_documento,
+              nroDocumento: c.nro_documento,
+              tipoDocumento: c.tipo_documento || 'CUIT',
+              phone: c.telefono || 'Sin teléfono',
+              telefono: c.telefono || 'Sin teléfono',
+              email: c.email || 'contacto@autotech.com.ar',
+              localidad: c.localidad || undefined,
+              nivelFidelizacion: c.nivel_fidelizacion || null,
+              fechaAlta: c.fecha_alta,
+              vehicleCount: (dbVehicles || []).filter(v => v.cliente_id === c.id).length,
+              status: c.estado === 'Inactivo' ? 'Inactivo' : 'Activo'
+            };
+          });
           setClients(mappedClients);
           if (mappedClients[0]) {
             setSelectedClientId(mappedClients[0].id);
@@ -662,40 +750,147 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     loadDataFromSupabase();
   }, []);
 
-  const addClient = async (newCli: Omit<Client, 'id' | 'vehicleCount' | 'status'>) => {
-    const tempId = `cli-${Date.now()}`;
+  const addClient = async (newCli: Omit<Client, 'id' | 'vehicleCount' | 'status'>): Promise<{ success: boolean; error?: string; message?: string; client?: Client }> => {
+    const valNombre = (newCli.nombre || '').trim();
+    const valApellido = (newCli.apellido || '').trim();
+    const valTipoDoc = (newCli.tipoDocumento || (newCli.cuitDni?.length > 9 ? 'CUIT' : 'DNI')).trim().toUpperCase() as 'DNI' | 'CUIT' | 'Pasaporte';
+    const valNroDoc = (newCli.nroDocumento || newCli.cuitDni || '').trim();
+    const valEmail = (newCli.email || '').trim().toLowerCase();
+    const valPhone = (newCli.phone || newCli.telefono || '').trim();
+    const valRazonSocial = (newCli.razonSocial || '').trim();
+    const valLocalidad = (newCli.localidad || '').trim();
+
+    // 1. Campos obligatorios
+    if (!valNombre || !valApellido || !valTipoDoc || !valNroDoc || !valEmail || !valPhone) {
+      return {
+        success: false,
+        error: 'Los campos nombre, apellido, tipo y número de documento, mail y teléfono son obligatorios'
+      };
+    }
+
+    // 2. Validación de formato de mail
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(valEmail)) {
+      return {
+        success: false,
+        error: 'El mail debe tener formato válido'
+      };
+    }
+
+    // 3. Criterio de Aceptación: No se permite duplicar tipo y número de documento
+    const alreadyExists = clients.some(c => {
+      const cTipo = (c.tipoDocumento || (c.cuitDni?.length > 9 ? 'CUIT' : 'DNI')).trim().toUpperCase();
+      const cNro = (c.nroDocumento || c.cuitDni || '').trim();
+      return cTipo === valTipoDoc && cNro === valNroDoc;
+    });
+
+    if (alreadyExists) {
+      return {
+        success: false,
+        error: 'Ya existe un cliente con ese tipo y número de documento'
+      };
+    }
+
+    // 4. Intentar registrar a través de la API Backend
+    let assignedNroCliente = Math.max(...clients.map(c => c.nroCliente || 1000), 1005) + 1;
+    let createdId = `cli-${Date.now()}`;
+
+    try {
+      const response = await fetch('http://localhost:4000/api/clientes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          nombre: valNombre,
+          apellido: valApellido,
+          tipo_documento: valTipoDoc,
+          numero_documento: valNroDoc,
+          mail: valEmail,
+          telefono: valPhone,
+          razon_social: valRazonSocial || null,
+          localidad: valLocalidad || null
+        })
+      });
+
+      const resData = await response.json();
+      if (!response.ok) {
+        if (response.status === 409 || resData.error?.includes('Ya existe')) {
+          return {
+            success: false,
+            error: 'Ya existe un cliente con ese tipo y número de documento'
+          };
+        }
+        if (resData.error?.includes('mail')) {
+          return {
+            success: false,
+            error: 'El mail debe tener formato válido'
+          };
+        }
+      } else if (resData.cliente) {
+        createdId = resData.cliente.id || createdId;
+        assignedNroCliente = resData.cliente.nro_cliente || assignedNroCliente;
+      }
+    } catch {
+      // Offline / fallback local
+    }
+
     const client: Client = {
       ...newCli,
-      id: tempId,
+      id: createdId,
+      nroCliente: assignedNroCliente,
+      nombre: valNombre,
+      apellido: valApellido,
+      name: valRazonSocial ? `${valNombre} ${valApellido} (${valRazonSocial})` : `${valNombre} ${valApellido}`,
+      tipoDocumento: valTipoDoc,
+      nroDocumento: valNroDoc,
+      cuitDni: valNroDoc,
+      email: valEmail,
+      phone: valPhone,
+      telefono: valPhone,
+      razonSocial: valRazonSocial || undefined,
+      localidad: valLocalidad || undefined,
+      nivelFidelizacion: null, // Queda sin nivel de fidelización asignado
       vehicleCount: 0,
-      status: 'Activo'
+      status: 'Activo',
+      fechaAlta: new Date().toISOString().split('T')[0]
     };
-    setClients(prev => [client, ...prev]);
-    setSelectedClientId(tempId);
 
-    // Persistir en Supabase
+    setClients(prev => [client, ...prev]);
+    setSelectedClientId(createdId);
+
+    // Persistir en Supabase si está disponible
     if (isSupabaseConfigured && supabase) {
       try {
-        const { data, error } = await supabase
+        const { data } = await supabase
           .from('clientes')
           .insert([{
-            tipo_documento: newCli.tipoDocumento || (newCli.cuitDni.length > 9 ? 'CUIT' : 'DNI'),
-            nro_documento: newCli.cuitDni,
-            razon_social: newCli.name,
-            telefono: newCli.phone,
-            email: newCli.email || null,
+            nombre: valNombre,
+            apellido: valApellido,
+            tipo_documento: valTipoDoc,
+            nro_documento: valNroDoc,
+            razon_social: valRazonSocial || null,
+            telefono: valPhone,
+            email: valEmail,
+            localidad: valLocalidad || null,
+            nivel_fidelizacion: null,
             estado: 'Activo'
           }])
           .select();
 
         if (data && data[0]) {
-          setClients(prev => prev.map(c => c.id === tempId ? { ...c, id: data[0].id } : c));
+          setClients(prev => prev.map(c => c.id === createdId ? { ...c, id: data[0].id, nroCliente: data[0].nro_cliente || assignedNroCliente } : c));
           setSelectedClientId(data[0].id);
         }
       } catch (e) {
         console.error('Error insertando cliente en Supabase:', e);
       }
     }
+
+    return {
+      success: true,
+      message: 'Cliente registrado correctamente',
+      client
+    };
   };
 
   const addVehicle = async (newVeh: Omit<Vehicle, 'status'>) => {

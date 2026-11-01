@@ -3,7 +3,7 @@ import { Plus, Search, Car, User, Phone, FileText, Check, X } from 'lucide-react
 import { useWorkshop } from '../context/WorkshopContext';
 
 export const ComercialScreen: React.FC = () => {
-  const { clients, selectedClientId, setSelectedClientId, addClient, vehicles, addVehicle } = useWorkshop();
+  const { clients, selectedClientId, setSelectedClientId, addClient, vehicles, addVehicle, setCurrentScreen } = useWorkshop();
   
   // Search state
   const [searchTerm, setSearchTerm] = useState('');
@@ -14,9 +14,12 @@ export const ComercialScreen: React.FC = () => {
 
   // New Client Form state
   const [newClientName, setNewClientName] = useState('');
+  const [newClientApellido, setNewClientApellido] = useState('');
+  const [newClientTipoDoc, setNewClientTipoDoc] = useState<'DNI' | 'CUIT' | 'Pasaporte'>('DNI');
   const [newClientCuit, setNewClientCuit] = useState('');
   const [newClientPhone, setNewClientPhone] = useState('');
   const [newClientEmail, setNewClientEmail] = useState('');
+  const [modalError, setModalError] = useState<string | null>(null);
 
   // New Vehicle Form state
   const [newPlate, setNewPlate] = useState('');
@@ -30,21 +33,39 @@ export const ComercialScreen: React.FC = () => {
 
   const filteredClients = clients.filter(c => 
     c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    c.cuitDni.includes(searchTerm)
+    (c.nombre && c.nombre.toLowerCase().includes(searchTerm.toLowerCase())) ||
+    (c.apellido && c.apellido.toLowerCase().includes(searchTerm.toLowerCase())) ||
+    c.cuitDni.includes(searchTerm) ||
+    (c.nroCliente && c.nroCliente.toString().includes(searchTerm))
   );
 
-  const handleSaveClient = (e: React.FormEvent) => {
+  const handleSaveClient = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newClientName || !newClientCuit || !newClientPhone) return;
+    setModalError(null);
+    if (!newClientName || !newClientCuit || !newClientPhone || !newClientEmail) {
+      setModalError('Los campos nombre, apellido, tipo y número de documento, mail y teléfono son obligatorios');
+      return;
+    }
 
-    addClient({
+    const res = await addClient({
+      nombre: newClientName,
+      apellido: newClientApellido || newClientName,
       name: newClientName,
+      tipoDocumento: newClientTipoDoc,
+      nroDocumento: newClientCuit,
       cuitDni: newClientCuit,
       phone: newClientPhone,
-      email: newClientEmail || undefined,
+      email: newClientEmail,
+      nivelFidelizacion: null,
     });
 
+    if (!res.success) {
+      setModalError(res.error || 'Error al guardar cliente');
+      return;
+    }
+
     setNewClientName('');
+    setNewClientApellido('');
     setNewClientCuit('');
     setNewClientPhone('');
     setNewClientEmail('');
@@ -91,10 +112,12 @@ export const ComercialScreen: React.FC = () => {
               </p>
             </div>
 
-            {/* BOTÓN REQUERIDO: + NUEVO CLIENTE */}
+            {/* BOTÓN REQUERIDO: + NUEVO CLIENTE (Redirige a la pantalla "Nuevo cliente" HU-04) */}
             <button
-              onClick={() => setIsClientModalOpen(true)}
-              className="px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md shadow-red-600/30 flex items-center space-x-1.5 transition-all active:scale-95"
+              id="btn-nuevo-cliente"
+              data-testid="btn-nuevo-cliente"
+              onClick={() => setCurrentScreen('nuevo-cliente')}
+              className="px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md shadow-red-600/30 flex items-center space-x-1.5 transition-all active:scale-95 cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               <span>+ Nuevo Cliente</span>
@@ -120,11 +143,12 @@ export const ComercialScreen: React.FC = () => {
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 dark:bg-[#1A1A22] text-slate-500 dark:text-slate-400 uppercase font-bold text-[10px] border-b border-slate-200 dark:border-[#3A3A48]">
                 <tr>
+                  <th className="px-3 py-3">N° Cliente</th>
                   <th className="px-4 py-3">Cliente / Razón Social</th>
                   <th className="px-4 py-3">DNI / CUIT</th>
-                  <th className="px-4 py-3">Contacto</th>
-                  <th className="px-4 py-3 text-center">Vehículos</th>
-                  <th className="px-4 py-3 text-center">Estado</th>
+                  <th className="px-3 py-3">Fidelización</th>
+                  <th className="px-3 py-3 text-center">Vehículos</th>
+                  <th className="px-3 py-3 text-center">Estado</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-[#3A3A48]">
@@ -140,6 +164,9 @@ export const ComercialScreen: React.FC = () => {
                           : 'hover:bg-slate-50 dark:hover:bg-[#202028]'
                       }`}
                     >
+                      <td className="px-3 py-3.5 font-mono font-bold text-slate-500 dark:text-slate-400">
+                        #{client.nroCliente || '---'}
+                      </td>
                       <td className="px-4 py-3.5">
                         <div className="flex items-center space-x-2.5">
                           <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs ${
@@ -154,17 +181,20 @@ export const ComercialScreen: React.FC = () => {
                         </div>
                       </td>
                       <td className="px-4 py-3.5 font-mono text-slate-600 dark:text-slate-300">
+                        <span className="text-[10px] text-slate-400 block font-normal">{client.tipoDocumento || 'DOC'}</span>
                         {client.cuitDni}
                       </td>
-                      <td className="px-4 py-3.5 text-slate-600 dark:text-slate-300">
-                        {client.phone}
+                      <td className="px-3 py-3.5">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700">
+                          {client.nivelFidelizacion || 'Sin nivel asignado'}
+                        </span>
                       </td>
-                      <td className="px-4 py-3.5 text-center font-mono font-bold">
+                      <td className="px-3 py-3.5 text-center font-mono font-bold">
                         <span className="px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 text-[11px]">
                           {client.vehicleCount}
                         </span>
                       </td>
-                      <td className="px-4 py-3.5 text-center">
+                      <td className="px-3 py-3.5 text-center">
                         <span className={client.status === 'Activo' ? 'badge-green' : 'badge-gray'}>
                           {client.status}
                         </span>
@@ -201,6 +231,16 @@ export const ComercialScreen: React.FC = () => {
 
           {/* Info resumida del cliente */}
           <div className="grid grid-cols-2 gap-2 text-xs p-3 rounded-xl bg-slate-50 dark:bg-[#1E1E24] border border-slate-200 dark:border-[#3A3A48]">
+            <div>
+              <span className="text-[10px] text-slate-400 block uppercase font-bold">N° Cliente</span>
+              <span className="font-mono font-bold text-red-600 dark:text-red-400">#{selectedClient?.nroCliente || '---'}</span>
+            </div>
+            <div>
+              <span className="text-[10px] text-slate-400 block uppercase font-bold">Fidelización</span>
+              <span className="font-semibold text-slate-600 dark:text-slate-300">
+                {selectedClient?.nivelFidelizacion || 'Sin nivel asignado'}
+              </span>
+            </div>
             <div>
               <span className="text-[10px] text-slate-400 block uppercase font-bold">CUIT / DNI</span>
               <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{selectedClient?.cuitDni}</span>
