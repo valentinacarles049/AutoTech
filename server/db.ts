@@ -113,7 +113,7 @@ export interface LocalClient {
   estado: string;
 }
 
-let nextClientNumber = 1004;
+let nextClientNumber = 1005;
 
 export const getNextClientNumber = (): number => {
   return nextClientNumber++;
@@ -163,6 +163,21 @@ export const localClientsSeed: LocalClient[] = [
     localidad: 'Córdoba Capital',
     nivel_fidelizacion: null,
     fecha_alta: '2026-02-01',
+    estado: 'Activo'
+  },
+  {
+    id: 'cli-6',
+    nro_cliente: 1004,
+    nombre: 'Carlos',
+    apellido: 'Morales',
+    tipo_documento: 'DNI',
+    nro_documento: '20-40111222-3',
+    razon_social: null,
+    email: 'carlos.morales@hotmail.com',
+    telefono: '0351-4112233',
+    localidad: 'Córdoba Capital',
+    nivel_fidelizacion: null,
+    fecha_alta: '2026-02-05',
     estado: 'Activo'
   }
 ];

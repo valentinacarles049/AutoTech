@@ -1,8 +1,11 @@
 import { Router } from 'express';
-import { registrarCliente, listarClientes, verificarDocumento, eliminarClienteTest } from '../controllers/clientes.controller';
+import { registrarCliente, listarClientes, buscarClientes, verificarDocumento, eliminarClienteTest } from '../controllers/clientes.controller';
 import { requireAuth, requireRole } from '../middleware/auth.middleware';
 
 const router = Router();
+
+// HU-05: Buscar Cliente (por documento, apellido o número de cliente)
+router.get('/buscar', buscarClientes);
 
 // HU-04: Registrar Cliente (Protegido por Rol Responsable de Atención al Cliente y Admin)
 router.post(

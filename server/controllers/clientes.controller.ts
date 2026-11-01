@@ -204,6 +204,197 @@ export const verificarDocumento = async (req: Request, res: Response): Promise<v
 };
 
 /**
+ * HU-05: Buscar Cliente
+ * Permite buscar un cliente por documento, apellido o número de cliente.
+ * 
+ * Criterios de Aceptación:
+ * 1. La búsqueda por documento devuelve un único cliente
+ * 2. La búsqueda por apellido lista las coincidencias
+ * 3. Si no hay resultados se muestra "No se encontraron clientes"
+ */
+export const buscarClientes = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const q = (req.query.q || '').toString().trim();
+    const filtro = (req.query.filtro || req.query.criterio || 'todos').toString().trim().toLowerCase();
+    const paramDoc = (req.query.documento || '').toString().trim();
+    const paramApellido = (req.query.apellido || '').toString().trim();
+    const paramNroCliente = (req.query.nro_cliente || req.query.numero_cliente || '').toString().trim();
+
+    // Obtener clientes de base de datos o fallback en memoria
+    let allClients: LocalClient[] = localClientsSeed;
+    if (isSupabaseConnected && supabase) {
+      const { data, error } = await supabase.from('clientes').select('*');
+      if (data && !error && data.length > 0) {
+        allClients = data;
+      }
+    }
+
+    // 1. Criterio 1: La búsqueda por documento devuelve un único cliente
+    if (paramDoc || filtro === 'documento') {
+      const docQuery = (paramDoc || q).toLowerCase().replace(/[\s-]/g, '');
+      const found = allClients.find(c => {
+        const cDoc = (c.nro_documento || '').toLowerCase().replace(/[\s-]/g, '');
+        return cDoc === docQuery || c.nro_documento.toLowerCase() === (paramDoc || q).toLowerCase();
+      });
+
+      if (!found) {
+        // Criterio 3: Si no hay resultados se muestra "No se encontraron clientes"
+        res.status(200).json({
+          success: true,
+          count: 0,
+          clientes: [],
+          message: 'No se encontraron clientes'
+        });
+        return;
+      }
+
+      res.status(200).json({
+        success: true,
+        count: 1,
+        clientes: [found]
+      });
+      return;
+    }
+
+    // 2. Criterio 2: La búsqueda por apellido lista las coincidencias
+    if (paramApellido || filtro === 'apellido') {
+      const apeQuery = (paramApellido || q).toLowerCase();
+      const matches = allClients.filter(c => 
+        (c.apellido && c.apellido.toLowerCase().includes(apeQuery)) ||
+        (c.nombre && c.nombre.toLowerCase().includes(apeQuery))
+      );
+
+      if (matches.length === 0) {
+        // Criterio 3: Si no hay resultados se muestra "No se encontraron clientes"
+        res.status(200).json({
+          success: true,
+          count: 0,
+          clientes: [],
+          message: 'No se encontraron clientes'
+        });
+        return;
+      }
+
+      res.status(200).json({
+        success: true,
+        count: matches.length,
+        clientes: matches
+      });
+      return;
+    }
+
+    // 3. Búsqueda por número de cliente
+    if (paramNroCliente || filtro === 'nro_cliente') {
+      const nroQuery = (paramNroCliente || q).replace('#', '').trim();
+      const matches = allClients.filter(c => c.nro_cliente?.toString() === nroQuery);
+
+      if (matches.length === 0) {
+        res.status(200).json({
+          success: true,
+          count: 0,
+          clientes: [],
+          message: 'No se encontraron clientes'
+        });
+        return;
+      }
+
+      res.status(200).json({
+        success: true,
+        count: matches.length,
+        clientes: matches
+      });
+      return;
+    }
+
+    // 4. Búsqueda unificada (parámetro 'q' general)
+    if (q) {
+      const cleanQ = q.toLowerCase();
+      const cleanQDigits = cleanQ.replace(/[\s-]/g, '');
+
+      // A) Coincidencia de documento -> Criterio 1: devuelve un único cliente
+      const docMatch = allClients.find(c => {
+        const cDoc = (c.nro_documento || '').toLowerCase().replace(/[\s-]/g, '');
+        return cDoc === cleanQDigits || c.nro_documento.toLowerCase() === cleanQ;
+      });
+
+      if (docMatch && cleanQDigits.length >= 6) {
+        res.status(200).json({
+          success: true,
+          count: 1,
+          clientes: [docMatch]
+        });
+        return;
+      }
+
+      // B) Coincidencia de apellido -> Criterio 2: lista las coincidencias
+      const apellidoMatches = allClients.filter(c => 
+        c.apellido && c.apellido.toLowerCase().includes(cleanQ)
+      );
+
+      if (apellidoMatches.length > 0) {
+        res.status(200).json({
+          success: true,
+          count: apellidoMatches.length,
+          clientes: apellidoMatches
+        });
+        return;
+      }
+
+      // C) Coincidencia de número de cliente
+      const nroMatches = allClients.filter(c => 
+        c.nro_cliente?.toString() === cleanQ.replace('#', '')
+      );
+
+      if (nroMatches.length > 0) {
+        res.status(200).json({
+          success: true,
+          count: nroMatches.length,
+          clientes: nroMatches
+        });
+        return;
+      }
+
+      // D) Búsqueda amplia por nombre, razón social o documento parcial
+      const generalMatches = allClients.filter(c => 
+        (c.nombre && c.nombre.toLowerCase().includes(cleanQ)) ||
+        (c.razon_social && c.razon_social.toLowerCase().includes(cleanQ)) ||
+        (c.nro_documento && c.nro_documento.toLowerCase().includes(cleanQ))
+      );
+
+      if (generalMatches.length === 0) {
+        // Criterio 3: Si no hay resultados se muestra "No se encontraron clientes"
+        res.status(200).json({
+          success: true,
+          count: 0,
+          clientes: [],
+          message: 'No se encontraron clientes'
+        });
+        return;
+      }
+
+      res.status(200).json({
+        success: true,
+        count: generalMatches.length,
+        clientes: generalMatches
+      });
+      return;
+    }
+
+    // Sin filtro de búsqueda -> retorna todos
+    res.status(200).json({
+      success: true,
+      count: allClients.length,
+      clientes: allClients
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      error: 'Error interno en la búsqueda de clientes',
+      details: error.message
+    });
+  }
+};
+
+/**
  * Endpoint de limpieza para tests BDD (idempotencia)
  */
 export const eliminarClienteTest = async (req: Request, res: Response): Promise<void> => {
@@ -227,4 +418,6 @@ export const eliminarClienteTest = async (req: Request, res: Response): Promise<
 
   res.json({ success: true, removed: idx !== -1 });
 };
+
+
 

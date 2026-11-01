@@ -422,6 +422,9 @@ BEGIN
     VALUES ('Esteban', 'Morales', 'DNI', '20-33445566-8', NULL, 'esteban.morales@gmail.com', '0351-155987654', 'Córdoba Capital', NULL)
     RETURNING id INTO cli3_id;
 
+    INSERT INTO clientes (nombre, apellido, tipo_documento, nro_documento, razon_social, email, telefono, localidad, nivel_fidelizacion)
+    VALUES ('Carlos', 'Morales', 'DNI', '20-40111222-3', NULL, 'carlos.morales@hotmail.com', '0351-4112233', 'Córdoba Capital', NULL);
+
     -- Insertar Vehículos asociados
     INSERT INTO vehiculos (dominio, cliente_id, marca, modelo, anio, kilometraje_actual)
     VALUES 

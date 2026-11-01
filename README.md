@@ -188,6 +188,16 @@ El proyecto incluye el esquema SQL listo para inicializar la base de datos: [`au
   - **Asignación automática**: Registro con un número de cliente autoincremental (`nro_cliente`), confirmación con el mensaje *"Cliente registrado correctamente"* y asignación inicial sin nivel de fidelización (`nivel_fidelizacion = NULL`).
   - **Base de Datos**: Tabla `clientes` actualizada y procedimiento almacenado PostgreSQL `registrar_cliente(...)`.
   - **API Backend**: Endpoints `POST /api/clientes` (protegido con `requireRole`), `GET /api/clientes` y `GET /api/clientes/verificar-doc`.
+- **HU-05 Buscar cliente**:
+  - **Rol**: Responsable de Atención al Cliente (`carlos.atencion`) y Administrador.
+  - **Pantalla**: Módulo *"Comercial"* (`/comercial`), sección Maestro de Clientes y Detalle de Flota.
+  - **Criterio 1**: La búsqueda por documento devuelve **un único cliente** (debido a la unicidad del documento en el sistema, la consulta por DNI/CUIT retorna exactamente 1 resultado con sus datos y flota asociada).
+  - **Criterio 2**: La búsqueda por apellido **lista las coincidencias** (cuando varios clientes comparten apellido, como "Morales", lista todas las filas coincidentes para poder seleccionarlos y ver sus vehículos).
+  - **Criterio 3**: Si no hay resultados se muestra el mensaje explícito **"No se encontraron clientes"** tanto en la tabla/grilla como en el panel de detalle de flota.
+  - **Búsqueda por N° de cliente**: Permite buscar y acceder directamente por legajo/número de cliente correlativo.
+  - **API Backend**: Endpoint `GET /api/clientes/buscar` soportando los query params `documento`, `apellido`, `nro_cliente`, `filtro` y búsqueda unificada `q`.
+  - **BDD Gherkin**: Especificación formal en `features/buscar_cliente.feature` y suite de pruebas ejecutables en `test_bdd_buscar_cliente.ts` (16 tests pasados con 100% de éxito).
+
 
 
 

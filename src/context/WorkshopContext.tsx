@@ -235,6 +235,22 @@ const initialClients: Client[] = [
     vehicleCount: 0,
     status: 'Inactivo'
   },
+  {
+    id: 'cli-6',
+    nroCliente: 1006,
+    nombre: 'Carlos',
+    apellido: 'Morales',
+    name: 'Carlos Morales',
+    tipoDocumento: 'DNI',
+    nroDocumento: '20-40111222-3',
+    cuitDni: '20-40111222-3',
+    email: 'carlos.morales@hotmail.com',
+    phone: '0351-4112233',
+    localidad: 'Córdoba Capital',
+    nivelFidelizacion: null,
+    vehicleCount: 1,
+    status: 'Activo'
+  },
 ];
 
 const initialVehicles: Vehicle[] = [
@@ -243,6 +259,7 @@ const initialVehicles: Vehicle[] = [
   { plate: 'AC-789-DD', brandModel: 'Volkswagen Amarok V6 3.0', year: 2020, vin: '8AWDB42H2LA091244', mileage: 89000, clientId: 'cli-1', status: 'Activo' },
   { plate: 'AD-991-LK', brandModel: 'Ford Ranger 3.2 TDCi Limited', year: 2019, vin: '8AFAR2341KA098123', mileage: 104000, clientId: 'cli-2', status: 'Activo' },
   { plate: 'AD-332-LM', brandModel: 'Ford Ranger 3.2 TDCi XLT', year: 2019, vin: '8AFAR3312KA098124', mileage: 98400, clientId: 'cli-3', status: 'En taller' },
+  { plate: 'AD-884-XY', brandModel: 'Chevrolet S10 2.8 CTDI', year: 2021, vin: '8AGBA3CD4N0981921', mileage: 78000, clientId: 'cli-6', status: 'Activo' },
 ];
 
 const initialWorkOrders: WorkOrder[] = [
