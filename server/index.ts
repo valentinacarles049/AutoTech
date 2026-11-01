@@ -4,6 +4,7 @@ import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import authRoutes from './routes/auth.routes';
 import clientesRoutes from './routes/clientes.routes';
+import vehiculosRoutes from './routes/vehiculos.routes';
 import { isSupabaseConnected } from './db';
 
 dotenv.config();
@@ -32,6 +33,7 @@ app.use((req, res, next) => {
 // Rutas de la API
 app.use('/api/auth', authRoutes);
 app.use('/api/clientes', clientesRoutes);
+app.use('/api/vehiculos', vehiculosRoutes);
 
 // Health check general
 app.get('/api/health', (req, res) => {

@@ -182,3 +182,26 @@ export const localClientsSeed: LocalClient[] = [
   }
 ];
 
+// ============================================================
+// Semilla Local de Vehículos (HU-06: Registrar Vehículo)
+// ============================================================
+export interface LocalVehicle {
+  dominio: string; // Patente única (ej: AF-123-ZZ)
+  cliente_id: string; // ID del cliente asociado
+  marca: string;
+  modelo: string;
+  anio: number;
+  kilometraje_actual: number;
+  estado: string;
+}
+
+export const localVehiclesSeed: LocalVehicle[] = [
+  { dominio: 'AF-123-ZZ', cliente_id: 'cli-1', marca: 'Toyota', modelo: 'Hilux 2.8 D-4D', anio: 2022, kilometraje_actual: 64200, estado: 'En taller' },
+  { dominio: 'AE-456-CC', cliente_id: 'cli-1', marca: 'Mercedes-Benz', modelo: 'Sprinter 516', anio: 2021, kilometraje_actual: 112500, estado: 'Aprobado' },
+  { dominio: 'AC-789-DD', cliente_id: 'cli-1', marca: 'Volkswagen', modelo: 'Amarok V6 3.0', anio: 2020, kilometraje_actual: 89000, estado: 'Activo' },
+  { dominio: 'AD-991-LK', cliente_id: 'cli-2', marca: 'Ford', modelo: 'Ranger 3.2 TDCi Limited', anio: 2019, kilometraje_actual: 104000, estado: 'Activo' },
+  { dominio: 'AD-332-LM', cliente_id: 'cli-3', marca: 'Ford', modelo: 'Ranger 3.2 TDCi XLT', anio: 2019, kilometraje_actual: 98400, estado: 'En taller' },
+  { dominio: 'AD-884-XY', cliente_id: 'cli-6', marca: 'Chevrolet', modelo: 'S10 2.8 CTDI', anio: 2021, kilometraje_actual: 78000, estado: 'Activo' }
+];
+
+

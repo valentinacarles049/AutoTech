@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Plus, Search, Car, User, Phone, FileText, Check, X, Filter, UserX } from 'lucide-react';
+import { Plus, Search, Car, User, Phone, FileText, Check, X, Filter, UserX, AlertCircle } from 'lucide-react';
 import { useWorkshop } from '../context/WorkshopContext';
 
 export const ComercialScreen: React.FC = () => {
@@ -21,12 +21,15 @@ export const ComercialScreen: React.FC = () => {
   const [newClientEmail, setNewClientEmail] = useState('');
   const [modalError, setModalError] = useState<string | null>(null);
 
-  // New Vehicle Form state
+  // New Vehicle Form state (HU-06: Registrar Vehículo)
   const [newPlate, setNewPlate] = useState('');
+  const [newBrand, setNewBrand] = useState('');
   const [newModel, setNewModel] = useState('');
-  const [newYear, setNewYear] = useState(2023);
+  const [newYear, setNewYear] = useState<number>(new Date().getFullYear());
   const [newVin, setNewVin] = useState('');
-  const [newMileage, setNewMileage] = useState(45000);
+  const [newMileage, setNewMileage] = useState<number>(0);
+  const [vehicleModalError, setVehicleModalError] = useState<string | null>(null);
+  const [vehicleSuccessMsg, setVehicleSuccessMsg] = useState<string | null>(null);
 
   // Filtrado de clientes según criterios de aceptación de HU-05:
   // Criterio 1: La búsqueda por documento devuelve un único cliente
@@ -139,23 +142,63 @@ export const ComercialScreen: React.FC = () => {
     setIsClientModalOpen(false);
   };
 
-  const handleSaveVehicle = (e: React.FormEvent) => {
+  // Handler para HU-06: Registrar Vehículo de Cliente
+  const handleSaveVehicle = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPlate || !newModel || !selectedClient) return;
+    setVehicleModalError(null);
 
-    addVehicle({
-      plate: newPlate.toUpperCase(),
-      brandModel: newModel,
-      year: Number(newYear),
-      vin: newVin || 'VIN-GENERATED-001',
-      mileage: Number(newMileage),
+    if (!selectedClient) {
+      setVehicleModalError('Debe seleccionar un cliente antes de registrar un vehículo');
+      return;
+    }
+
+    const cleanPlate = newPlate.trim().toUpperCase();
+    const cleanBrand = newBrand.trim();
+    const cleanModel = newModel.trim();
+    const cleanYear = Number(newYear);
+
+    // Criterio 1: Campos obligatorios: patente, marca, modelo y año
+    if (!cleanPlate || !cleanBrand || !cleanModel || !cleanYear) {
+      setVehicleModalError('Los campos patente, marca, modelo y año son obligatorios');
+      return;
+    }
+
+    const currentYear = new Date().getFullYear();
+    if (cleanYear < 1920 || cleanYear > currentYear + 1) {
+      setVehicleModalError(`El año del vehículo debe estar entre 1920 y ${currentYear + 1}`);
+      return;
+    }
+
+    // Criterio 2: La patente es única en el sistema
+    // Criterio 3: El vehículo queda asociado al cliente seleccionado
+    const res = await addVehicle({
+      plate: cleanPlate,
+      marca: cleanBrand,
+      modelo: cleanModel,
+      year: cleanYear,
+      vin: newVin.trim() || `VIN-${cleanPlate}`,
+      mileage: Number(newMileage) || 0,
       clientId: selectedClient.id,
     });
 
+    if (!res.success) {
+      setVehicleModalError(res.error || 'Error al registrar el vehículo');
+      return;
+    }
+
+    // Éxito: limpiar formulario y cerrar modal
     setNewPlate('');
+    setNewBrand('');
     setNewModel('');
+    setNewYear(new Date().getFullYear());
     setNewVin('');
+    setNewMileage(0);
+    setVehicleModalError(null);
     setIsVehicleModalOpen(false);
+
+    // Notificación de éxito
+    setVehicleSuccessMsg(`Vehículo ${cleanPlate} (${cleanBrand} ${cleanModel}) registrado con éxito para ${selectedClient.name}`);
+    setTimeout(() => setVehicleSuccessMsg(null), 5000);
   };
 
   return (
@@ -398,14 +441,39 @@ export const ComercialScreen: React.FC = () => {
 
             {selectedClient && (
               <button
-                onClick={() => setIsVehicleModalOpen(true)}
-                className="px-3 py-1.5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-100 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all shadow-sm"
+                id="btn-open-asociar-vehiculo"
+                data-testid="btn-open-asociar-vehiculo"
+                onClick={() => {
+                  setVehicleModalError(null);
+                  setIsVehicleModalOpen(true);
+                }}
+                className="px-3 py-1.5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-100 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all shadow-sm cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>+ Asociar Vehículo</span>
               </button>
             )}
           </div>
+
+          {/* Notificación de éxito al asociar vehículo */}
+          {vehicleSuccessMsg && (
+            <div 
+              id="vehicle-success-alert" 
+              data-testid="vehicle-success-alert"
+              className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-xs flex items-center justify-between animate-in fade-in"
+            >
+              <div className="flex items-center space-x-2">
+                <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span className="font-semibold">{vehicleSuccessMsg}</span>
+              </div>
+              <button 
+                onClick={() => setVehicleSuccessMsg(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
 
           {!selectedClient ? (
             <div 
@@ -621,87 +689,170 @@ export const ComercialScreen: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL SECUNDARIO: ASOCIAR VEHÍCULO */}
+      {/* MODAL SECUNDARIO: ASOCIAR VEHÍCULO (HU-06) */}
       {isVehicleModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="w-full max-w-md card-surface rounded-2xl shadow-2xl border border-slate-200 dark:border-[#3A3A48] overflow-hidden">
+          <div className="w-full max-w-lg card-surface rounded-2xl shadow-2xl border border-slate-200 dark:border-[#3A3A48] overflow-hidden">
             <div className="p-5 border-b border-slate-200 dark:border-[#3A3A48] flex items-center justify-between">
               <div>
                 <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
-                  Asociar Vehículo
+                  Registrar Vehículo de Cliente
                 </h3>
-                <p className="text-xs text-slate-500">
-                  Para el cliente: <strong>{selectedClient?.name}</strong>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Asociando a: <strong className="text-slate-800 dark:text-slate-200">{selectedClient?.name}</strong> (N° Cliente: #{selectedClient?.nroCliente || '---'})
                 </p>
               </div>
-              <button onClick={() => setIsVehicleModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+              <button 
+                type="button"
+                id="btn-close-vehicle-modal"
+                onClick={() => {
+                  setVehicleModalError(null);
+                  setIsVehicleModalOpen(false);
+                }} 
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handleSaveVehicle} className="p-5 space-y-4">
+              {vehicleModalError && (
+                <div 
+                  id="vehicle-modal-error" 
+                  data-testid="vehicle-modal-error"
+                  className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 text-xs flex items-start space-x-2"
+                >
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span className="font-semibold">{vehicleModalError}</span>
+                </div>
+              )}
+
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Los campos obligatorios están marcados con un asterisco (<span className="text-red-600 font-bold">*</span>)
+              </p>
+
               <div>
-                <label className="block text-xs font-bold mb-1">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Patente / Dominio <span className="text-red-600 font-bold">*</span>
                 </label>
                 <input
+                  id="new-vehicle-plate"
+                  data-testid="new-vehicle-plate"
                   type="text"
                   required
                   value={newPlate}
-                  onChange={(e) => setNewPlate(e.target.value)}
-                  placeholder="ej: AF-999-XX"
+                  onChange={(e) => setNewPlate(e.target.value.toUpperCase())}
+                  placeholder="ej: AF-999-XX o AE-123-AA"
                   className="app-input w-full px-3.5 py-2.5 font-mono uppercase"
                 />
+                <span className="text-[10px] text-slate-400 mt-0.5 block">
+                  La patente es única en todo el sistema.
+                </span>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold mb-1">
-                  Marca y Modelo <span className="text-red-600 font-bold">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={newModel}
-                  onChange={(e) => setNewModel(e.target.value)}
-                  placeholder="ej: Toyota Hilux 2.8 D-4D"
-                  className="app-input w-full px-3.5 py-2.5"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold mb-1">Año</label>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Marca <span className="text-red-600 font-bold">*</span>
+                  </label>
                   <input
+                    id="new-vehicle-brand"
+                    data-testid="new-vehicle-brand"
+                    type="text"
+                    required
+                    value={newBrand}
+                    onChange={(e) => setNewBrand(e.target.value)}
+                    placeholder="ej: Toyota, Ford, Chevrolet"
+                    className="app-input w-full px-3.5 py-2.5"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Modelo <span className="text-red-600 font-bold">*</span>
+                  </label>
+                  <input
+                    id="new-vehicle-model"
+                    data-testid="new-vehicle-model"
+                    type="text"
+                    required
+                    value={newModel}
+                    onChange={(e) => setNewModel(e.target.value)}
+                    placeholder="ej: Hilux 2.8 D-4D, Ranger XLT"
+                    className="app-input w-full px-3.5 py-2.5"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Año <span className="text-red-600 font-bold">*</span>
+                  </label>
+                  <input
+                    id="new-vehicle-year"
+                    data-testid="new-vehicle-year"
                     type="number"
+                    required
+                    min={1920}
+                    max={new Date().getFullYear() + 1}
                     value={newYear}
                     onChange={(e) => setNewYear(Number(e.target.value))}
                     className="app-input w-full px-3.5 py-2.5 font-mono"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold mb-1">Kilometraje</label>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Kilometraje Actual
+                  </label>
                   <input
+                    id="new-vehicle-mileage"
+                    data-testid="new-vehicle-mileage"
                     type="number"
+                    min={0}
                     value={newMileage}
                     onChange={(e) => setNewMileage(Number(e.target.value))}
                     className="app-input w-full px-3.5 py-2.5 font-mono"
+                    placeholder="ej: 45000"
                   />
                 </div>
               </div>
 
-              <div className="pt-3 border-t border-slate-200 dark:border-[#3A3A48] flex justify-end space-x-2">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Número de Chasis / VIN (opcional)
+                </label>
+                <input
+                  id="new-vehicle-vin"
+                  data-testid="new-vehicle-vin"
+                  type="text"
+                  value={newVin}
+                  onChange={(e) => setNewVin(e.target.value.toUpperCase())}
+                  placeholder="ej: 8AJBA3CD4N0198273"
+                  className="app-input w-full px-3.5 py-2.5 font-mono uppercase"
+                />
+              </div>
+
+              <div className="pt-4 border-t border-slate-200 dark:border-[#3A3A48] flex items-center justify-end space-x-3">
                 <button
                   type="button"
-                  onClick={() => setIsVehicleModalOpen(false)}
-                  className="px-4 py-2 text-xs font-bold rounded-xl bg-slate-200 dark:bg-slate-700"
+                  id="btn-cancel-vehicle"
+                  data-testid="btn-cancel-vehicle"
+                  onClick={() => {
+                    setVehicleModalError(null);
+                    setIsVehicleModalOpen(false);
+                  }}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-[#3A3A48] bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 text-xs font-bold rounded-xl bg-red-600 hover:bg-red-700 text-white shadow-sm"
+                  id="btn-save-vehicle"
+                  data-testid="btn-save-vehicle"
+                  className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-md shadow-red-600/30 transition-all active:scale-95 flex items-center space-x-1.5 cursor-pointer"
                 >
-                  Guardar Vehículo
+                  <Check className="w-4 h-4" />
+                  <span>Guardar Vehículo</span>
                 </button>
               </div>
             </form>

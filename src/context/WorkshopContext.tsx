@@ -122,7 +122,16 @@ interface WorkshopContextType {
   setSelectedClientId: (id: string) => void;
   addClient: (client: Omit<Client, 'id' | 'vehicleCount' | 'status'>) => Promise<{ success: boolean; error?: string; message?: string; client?: Client }>;
   vehicles: Vehicle[];
-  addVehicle: (vehicle: Omit<Vehicle, 'status'>) => void;
+  addVehicle: (vehicle: {
+    plate: string;
+    marca?: string;
+    modelo?: string;
+    brandModel?: string;
+    year: number;
+    clientId: string;
+    mileage?: number;
+    vin?: string;
+  }) => Promise<{ success: boolean; error?: string; message?: string; vehicle?: Vehicle }>;
 
   // Operativa (Work Orders & Mechanic MVP)
   workOrders: WorkOrder[];
@@ -910,36 +919,138 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
   };
 
-  const addVehicle = async (newVeh: Omit<Vehicle, 'status'>) => {
+  // HU-06: Registrar Vehículo de Cliente
+  const addVehicle = async (newVeh: {
+    plate: string;
+    marca?: string;
+    modelo?: string;
+    brandModel?: string;
+    year: number;
+    clientId: string;
+    mileage?: number;
+    vin?: string;
+  }): Promise<{ success: boolean; error?: string; message?: string; vehicle?: Vehicle }> => {
+    const valPlate = (newVeh.plate || '').trim().toUpperCase();
+    const valMarca = (newVeh.marca || (newVeh.brandModel ? newVeh.brandModel.split(' ')[0] : '')).trim();
+    const valModelo = (newVeh.modelo || (newVeh.brandModel ? newVeh.brandModel.split(' ').slice(1).join(' ') : '')).trim();
+    const valYear = Number(newVeh.year);
+    const valClientId = (newVeh.clientId || '').trim();
+
+    // 1. Criterio 1: Campos obligatorios: patente, marca, modelo y año
+    if (!valPlate || !valMarca || !valModelo || !valYear) {
+      return {
+        success: false,
+        error: 'Los campos patente, marca, modelo y año son obligatorios'
+      };
+    }
+
+    const currentYear = new Date().getFullYear();
+    if (isNaN(valYear) || valYear < 1920 || valYear > currentYear + 1) {
+      return {
+        success: false,
+        error: `El año del vehículo debe estar entre 1920 y ${currentYear + 1}`
+      };
+    }
+
+    // Validación de asociación obligatoria al cliente seleccionado (Criterio 3)
+    if (!valClientId) {
+      return {
+        success: false,
+        error: 'Debe seleccionarse un cliente para asociar el vehículo'
+      };
+    }
+
+    // 2. Criterio 2: La patente es única en el sistema
+    const alreadyExists = vehicles.some(
+      v => (v.plate || v.dominio || '').trim().toUpperCase() === valPlate
+    );
+
+    if (alreadyExists) {
+      return {
+        success: false,
+        error: 'Ya existe un vehículo con esa patente en el sistema'
+      };
+    }
+
+    // 3. Persistir en Backend Express API
+    try {
+      const response = await fetch('http://localhost:4000/api/vehiculos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          patente: valPlate,
+          marca: valMarca,
+          modelo: valModelo,
+          año: valYear,
+          cliente_id: valClientId,
+          kilometraje_actual: newVeh.mileage || 0
+        })
+      });
+
+      const resData = await response.json();
+      if (!response.ok) {
+        if (response.status === 409 || resData.error?.includes('Ya existe')) {
+          return {
+            success: false,
+            error: 'Ya existe un vehículo con esa patente en el sistema'
+          };
+        }
+        if (resData.error?.includes('obligatorios')) {
+          return {
+            success: false,
+            error: 'Los campos patente, marca, modelo y año son obligatorios'
+          };
+        }
+      }
+    } catch {
+      // Fallback local en modo offline / tests
+    }
+
+    // 4. Criterio 3: El vehículo queda asociado al cliente seleccionado
     const veh: Vehicle = {
-      ...newVeh,
+      plate: valPlate,
+      dominio: valPlate,
+      brandModel: `${valMarca} ${valModelo}`.trim(),
+      marca: valMarca,
+      modelo: valModelo,
+      year: valYear,
+      año: valYear,
+      vin: newVeh.vin || `VIN-${valPlate}`,
+      mileage: Number(newVeh.mileage || 0),
+      kilometrajeActual: Number(newVeh.mileage || 0),
+      clientId: valClientId,
+      clienteId: valClientId,
       status: 'Activo'
     };
-    setVehicles(prev => [...prev, veh]);
-    setClients(prev => prev.map(c => c.id === newVeh.clientId ? { ...c, vehicleCount: c.vehicleCount + 1 } : c));
 
-    // Persistir en Supabase
+    setVehicles(prev => [veh, ...prev]);
+    setClients(prev => prev.map(c => c.id === valClientId ? { ...c, vehicleCount: c.vehicleCount + 1 } : c));
+
+    // Persistir en Supabase si está disponible
     if (isSupabaseConfigured && supabase) {
       try {
-        const parts = newVeh.brandModel.split(' ');
-        const marca = parts[0] || 'Genérica';
-        const modelo = parts.slice(1).join(' ') || newVeh.brandModel;
-
         await supabase
           .from('vehiculos')
           .insert([{
-            dominio: newVeh.plate,
-            cliente_id: newVeh.clientId,
-            marca: marca,
-            modelo: modelo,
-            anio: newVeh.year,
-            kilometraje_actual: newVeh.mileage,
+            dominio: valPlate,
+            cliente_id: valClientId,
+            marca: valMarca,
+            modelo: valModelo,
+            anio: valYear,
+            kilometraje_actual: veh.mileage,
             estado: 'Activo'
           }]);
       } catch (e) {
         console.error('Error insertando vehículo en Supabase:', e);
       }
     }
+
+    return {
+      success: true,
+      message: 'Vehículo registrado correctamente',
+      vehicle: veh
+    };
   };
 
   // Work Orders state

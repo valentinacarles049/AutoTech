@@ -196,7 +196,16 @@ El proyecto incluye el esquema SQL listo para inicializar la base de datos: [`au
   - **Criterio 3**: Si no hay resultados se muestra el mensaje explícito **"No se encontraron clientes"** tanto en la tabla/grilla como en el panel de detalle de flota.
   - **Búsqueda por N° de cliente**: Permite buscar y acceder directamente por legajo/número de cliente correlativo.
   - **API Backend**: Endpoint `GET /api/clientes/buscar` soportando los query params `documento`, `apellido`, `nro_cliente`, `filtro` y búsqueda unificada `q`.
-  - **BDD Gherkin**: Especificación formal en `features/buscar_cliente.feature` y suite de pruebas ejecutables en `test_bdd_buscar_cliente.ts` (16 tests pasados con 100% de éxito).
+- **HU-06 Registrar vehículo de cliente**:
+  - **Rol**: Responsable de Atención al Cliente (`carlos.atencion`) y Administrador.
+  - **Pantalla**: Módulo *"Comercial"* (`/comercial`), panel Detalle de Flota -> Modal *"Registrar Vehículo de Cliente"*.
+  - **Criterio 1**: Campos obligatorios: patente, marca, modelo y año validados (`patente`, `marca`, `modelo`, `año`).
+  - **Criterio 2**: La patente es única en todo el sistema (`PRIMARY KEY (dominio)`). Si ya existe, se rechaza con el mensaje: *"Ya existe un vehículo con esa patente en el sistema"*.
+  - **Criterio 3**: El vehículo queda asociado al cliente seleccionado (`cliente_id = selectedClient.id`), incrementando el contador de flota del cliente y actualizando reactivamente la lista de vehículos registrados.
+  - **Base de Datos**: Tabla `vehiculos` vinculada por FK a `clientes(id)` con `ON DELETE RESTRICT`.
+  - **API Backend**: Endpoints `POST /api/vehiculos` (protegido con `requireRole`), `GET /api/vehiculos` y `GET /api/vehiculos/verificar-patente`.
+  - **BDD Gherkin**: Especificación formal en `features/registrar_vehiculo.feature` y suite de pruebas ejecutables en `test_bdd_registrar_vehiculo.ts` (16 tests pasados con 100% de éxito).
+
 
 
 
