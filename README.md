@@ -214,7 +214,21 @@ El proyecto incluye el esquema SQL listo para inicializar la base de datos: [`au
   - **Criterio 4**: El horario reservado deja de estar disponible inmediatamente tras el registro. Si se intenta reservar un horario ya ocupado, el sistema muestra exactamente: *"El horario seleccionado no está disponible. Seleccione otro horario"* y no registra el turno.
   - **Base de Datos**: Tabla `turnos` con `nro_turno SERIAL`, `cliente_id`, `sucursal`, `fecha`, `hora`, `estado_turno_id` vinculada a `estado_turnos` (con estado `'Solicitado'`), y tabla `sucursales`.
   - **API Backend**: Endpoints `POST /api/turnos` (protegido por `requireRole`), `GET /api/turnos`, `GET /api/turnos/horarios-disponibles`, `GET /api/turnos/sucursales` y `POST /api/turnos/test-cleanup`.
-  - **BDD Gherkin**: Especificación formal en `features/registrar_solicitud_turno.feature` y suite de pruebas ejecutables en `test_bdd_registrar_solicitud_turno.ts` (27 tests pasados con 100% de éxito).
+  - **BDD Gherkin**: Especificación formal en `features/registrar_solicitud_turno.feature` y suite de pruebas ejecutables en `test_bdd_registrar_solicitud_turno.ts` (30 tests pasados con 100% de éxito).
+- **HU-10 Consultar disponibilidad horaria**:
+  - **Rol**: Responsable de Recepción (`valen.recepcion`) y Administrador.
+  - **Pantalla**: Módulo *"Recepción"* (`/recepcion`), pestaña *"HU-10: Consultar Disponibilidad"*.
+  - **Criterio 1**: Muestra los horarios dentro del horario de atención de la sucursal (calculado dinámicamente según la apertura y cierre de cada sucursal, ej. Centro: 08:00 a 17:00, Norte: 08:00 a 18:00).
+  - **Criterio 2**: Excluye los horarios con turnos `"Solicitado"`, `"Confirmado"` o `"Confirmado (24hs)"`. Los turnos en estado `"Cancelado"` liberan el horario y permanecen disponibles.
+  - **Criterio 3**: Si no hay horarios libres para la sucursal y fecha elegidas, se muestra el mensaje exacto: `"Sin disponibilidad para la fecha seleccionada"`.
+  - **API Backend**: Endpoints `GET /api/turnos/disponibilidad?sucursal=...&fecha=...` y `GET /api/turnos/horarios-disponibles`.
+  - **BDD Gherkin**: Especificación formal en `features/consultar_disponibilidad_horaria.feature` y suite de pruebas ejecutables en `test_bdd_consultar_disponibilidad.ts` (16 tests pasados con 100% de éxito).
+  - **Ejecución de Pruebas BDD**:
+    ```bash
+    npm run test:bdd        # Ejecuta toda la suite BDD (HU-09 + HU-10: 46/46 tests)
+    npm run test:bdd:hu10   # Ejecuta exclusivamente la suite de HU-10 (16/16 tests)
+    ```
+
 
 
 

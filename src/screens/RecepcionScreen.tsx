@@ -20,7 +20,7 @@ import {
   ClipboardList
 } from 'lucide-react';
 import { useWorkshop } from '../context/WorkshopContext';
-import { Turno, Vehicle, Client } from '../types/autotech';
+import { Turno, Vehicle, Client, DisponibilidadHorariaResult } from '../types/autotech';
 
 export const RecepcionScreen: React.FC = () => {
   const { 
@@ -38,11 +38,24 @@ export const RecepcionScreen: React.FC = () => {
     turnos,
     sucursales,
     getAvailableHours,
+    consultarDisponibilidad,
     registerTurno
   } = useWorkshop();
 
-  // Tab activo dentro del módulo de recepción
-  const [activeTab, setActiveTab] = useState<'nuevo-turno' | 'agenda' | 'presupuesto'>('nuevo-turno');
+  // Tab activo dentro del módulo de recepción (HU-09 & HU-10)
+  const [activeTab, setActiveTab] = useState<'nuevo-turno' | 'disponibilidad' | 'agenda' | 'presupuesto'>('nuevo-turno');
+
+  // Estados para HU-10: Consultar disponibilidad horaria
+  const [dispSucursal, setDispSucursal] = useState<string>(() => sucursales[0]?.nombre || 'Centro');
+  const [dispFecha, setDispFecha] = useState<string>(() => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  });
+  const [dispResult, setDispResult] = useState<DisponibilidadHorariaResult | null>(null);
+  const [isLoadingDisp, setIsLoadingDisp] = useState<boolean>(false);
 
   // Estado del formulario de Registro de Solicitud de Turno (HU-09)
   const [dniSearch, setDniSearch] = useState<string>('');
@@ -132,6 +145,32 @@ export const RecepcionScreen: React.FC = () => {
       setSelectedHorario('');
     }
   }, [availableSlots, selectedHorario]);
+
+  // Consulta reactiva de disponibilidad para la pestaña HU-10
+  useEffect(() => {
+    let isCurrent = true;
+    const fetchDisp = async () => {
+      setIsLoadingDisp(true);
+      try {
+        const res = await consultarDisponibilidad(dispSucursal, dispFecha);
+        if (isCurrent) setDispResult(res);
+      } catch {
+        // ignore
+      } finally {
+        if (isCurrent) setIsLoadingDisp(false);
+      }
+    };
+    fetchDisp();
+    return () => { isCurrent = false; };
+  }, [dispSucursal, dispFecha, turnos, consultarDisponibilidad]);
+
+  // Transferir horario libre consultado en HU-10 directamente a la solicitud de turno
+  const handleSelectSlotForBooking = (hora: string) => {
+    setSelectedSucursal(dispSucursal);
+    setSelectedFecha(dispFecha);
+    setSelectedHorario(hora);
+    setActiveTab('nuevo-turno');
+  };
 
   // Búsqueda de cliente por DNI
   const handleSearchClient = (e?: React.FormEvent) => {
@@ -306,6 +345,18 @@ export const RecepcionScreen: React.FC = () => {
         >
           <Plus className="w-4 h-4" />
           <span>HU-09: Registrar Solicitud de Turno</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('disponibilidad')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center space-x-2 transition-all ${
+            activeTab === 'disponibilidad'
+              ? 'bg-red-600 text-white shadow-md shadow-red-600/30'
+              : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+          }`}
+        >
+          <Clock className="w-4 h-4" />
+          <span>HU-10: Consultar Disponibilidad</span>
         </button>
 
         <button
@@ -589,8 +640,8 @@ export const RecepcionScreen: React.FC = () => {
                       <Clock className="w-3.5 h-3.5 text-red-600" />
                       <span>Horario Disponible <span className="text-red-600">*</span></span>
                     </span>
-                    <span className="badge-green text-[9px] py-0 px-2 font-bold">
-                      {availableSlots.length} libres
+                    <span className={availableSlots.length > 0 ? "badge-green text-[9px] py-0 px-2 font-bold" : "badge-yellow text-[9px] py-0 px-2 font-bold text-amber-600"}>
+                      {availableSlots.length > 0 ? `${availableSlots.length} libres` : 'Sin disponibilidad'}
                     </span>
                   </label>
                   {availableSlots.length > 0 ? (
@@ -606,8 +657,9 @@ export const RecepcionScreen: React.FC = () => {
                       ))}
                     </select>
                   ) : (
-                    <div className="p-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-600 dark:text-red-400 font-medium">
-                      No hay horarios disponibles para esta sucursal y fecha.
+                    <div className="p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-xs text-amber-800 dark:text-amber-300 font-bold flex items-center space-x-1.5">
+                      <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+                      <span>Sin disponibilidad para la fecha seleccionada</span>
                     </div>
                   )}
                   <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">
@@ -669,6 +721,191 @@ export const RecepcionScreen: React.FC = () => {
             </div>
 
           </form>
+
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* VISTA 1.1: HU-10 CONSULTAR DISPONIBILIDAD HORARIA */}
+      {/* ============================================================ */}
+      {activeTab === 'disponibilidad' && (
+        <div className="space-y-6 animate-in fade-in duration-200">
+          
+          {/* Card de Filtros de Consulta */}
+          <div className="card-surface rounded-2xl p-5 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200 dark:border-[#3A3A48]">
+              <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+                <Clock className="w-4 h-4 text-red-600" />
+                <span>HU-10: Consultar Disponibilidad Horaria por Sucursal y Fecha</span>
+              </h2>
+              <span className="text-xs text-slate-500">
+                Herramienta para recepcionistas en atención al cliente
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Selector Sucursal */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center space-x-1.5">
+                  <Building2 className="w-3.5 h-3.5 text-red-600" />
+                  <span>Sucursal <span className="text-red-600">*</span></span>
+                </label>
+                <select
+                  value={dispSucursal}
+                  onChange={(e) => setDispSucursal(e.target.value)}
+                  className="app-input w-full px-3 py-2.5 font-bold cursor-pointer text-xs"
+                >
+                  {sucursales.map(s => (
+                    <option key={s.id} value={s.nombre}>
+                      Sucursal {s.nombre} ({s.horarioApertura} a {s.horarioCierre}) - {s.direccion}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">
+                  Criterio 1: Solo se consideran horarios dentro del horario de atención de la sucursal elegida
+                </p>
+              </div>
+
+              {/* Selector Fecha */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center justify-between">
+                  <span className="flex items-center space-x-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-red-600" />
+                    <span>Fecha a Consultar <span className="text-red-600">*</span></span>
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono">Formato YYYY-MM-DD</span>
+                </label>
+                <input
+                  type="date"
+                  required
+                  min={todayISO}
+                  value={dispFecha}
+                  onChange={(e) => setDispFecha(e.target.value)}
+                  className="app-input w-full px-3 py-2 text-xs font-mono font-bold"
+                />
+                <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">
+                  Seleccione el día para verificar los turnos disponibles
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Información y Resultados de Disponibilidad */}
+          {dispResult && (
+            <div className="space-y-4">
+              
+              {/* Tarjeta de Métricas de la Consulta */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="card-surface rounded-2xl p-4 shadow-sm border-l-4 border-l-blue-600">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Horario de Atención</span>
+                  <span className="text-sm font-black text-slate-900 dark:text-white block mt-0.5">
+                    {dispResult.horarioAtencion} hs
+                  </span>
+                  <span className="text-[10px] text-slate-500">Sucursal {dispResult.sucursal}</span>
+                </div>
+
+                <div className={`card-surface rounded-2xl p-4 shadow-sm border-l-4 ${dispResult.tieneDisponibilidad ? 'border-l-emerald-600' : 'border-l-amber-500'}`}>
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Horarios Libres</span>
+                  <span className={`text-sm font-black block mt-0.5 ${dispResult.tieneDisponibilidad ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600'}`}>
+                    {dispResult.horariosDisponibles.length} de {dispResult.totalHorarios} slots
+                  </span>
+                  <span className="text-[10px] text-slate-500">{dispResult.fecha}</span>
+                </div>
+
+                <div className="card-surface rounded-2xl p-4 shadow-sm border-l-4 border-l-slate-400">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Horarios Ocupados</span>
+                  <span className="text-sm font-black text-slate-700 dark:text-slate-300 block mt-0.5">
+                    {dispResult.horariosOcupados.length} reservados
+                  </span>
+                  <span className="text-[10px] text-slate-500">Solicitados o Confirmados</span>
+                </div>
+              </div>
+
+              {/* HU-10 CRITERIO 3: Si no hay horarios libres se muestra "Sin disponibilidad para la fecha seleccionada" */}
+              {!dispResult.tieneDisponibilidad || dispResult.horariosDisponibles.length === 0 ? (
+                <div className="p-6 rounded-2xl border-2 border-amber-400 bg-amber-500/15 text-amber-950 dark:text-amber-200 flex items-start space-x-3.5 shadow-sm animate-in fade-in">
+                  <AlertTriangle className="w-6 h-6 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <h3 className="text-sm sm:text-base font-black tracking-tight text-amber-900 dark:text-amber-200">
+                      Sin disponibilidad para la fecha seleccionada
+                    </h3>
+                    <p className="text-xs text-amber-800/90 dark:text-amber-300/80 leading-relaxed">
+                      No quedan horarios libres dentro del horario de atención ({dispResult.horarioAtencion}) de la sucursal {dispSucursal} para la fecha {dispResult.fecha}. Todos los horarios han sido reservados con turnos Solicitados o Confirmados.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                /* HORARIOS LIBRES DISPONIBLES */
+                <div className="card-surface rounded-2xl p-5 shadow-sm space-y-4">
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-[#3A3A48]">
+                    <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" />
+                      <span>Horarios Libres para Ofrecer al Cliente ({dispResult.horariosDisponibles.length})</span>
+                    </h3>
+                    <span className="badge-green text-[10px] py-0.5 px-2 font-bold">
+                      Disponibles
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-3">
+                    {dispResult.horariosDisponibles.map(hora => (
+                      <div
+                        key={hora}
+                        className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/15 transition-all flex flex-col justify-between space-y-2 group"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono text-sm font-black text-emerald-800 dark:text-emerald-200">
+                            {hora} hs
+                          </span>
+                          <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                            Libre
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleSelectSlotForBooking(hora)}
+                          className="w-full py-1.5 px-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold transition-colors flex items-center justify-center space-x-1"
+                        >
+                          <Plus className="w-3 h-3" />
+                          <span>Ofrecer y Reservar</span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* HU-10 CRITERIO 2: HORARIOS EXCLUIDOS CON TURNOS SOLICITADOS O CONFIRMADOS */}
+              {dispResult.horariosOcupados.length > 0 && (
+                <div className="card-surface rounded-2xl p-5 shadow-sm space-y-3">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-[#3A3A48]">
+                    <h3 className="text-xs font-bold text-slate-600 dark:text-slate-400 flex items-center space-x-2">
+                      <span className="w-2 h-2 rounded-full bg-slate-400 inline-block" />
+                      <span>Horarios Excluidos por Turnos Solicitados o Confirmados ({dispResult.horariosOcupados.length})</span>
+                    </h3>
+                    <span className="text-[10px] text-slate-400">Criterio 2: Excluidos de los libres</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-2.5">
+                    {dispResult.horariosOcupados.map(item => (
+                      <div
+                        key={item.hora}
+                        className="p-2.5 rounded-xl border border-slate-200 dark:border-[#3A3A48] bg-slate-50 dark:bg-[#1A1A22] opacity-75 flex items-center justify-between text-xs"
+                      >
+                        <span className="font-mono font-bold text-slate-500 line-through">
+                          {item.hora} hs
+                        </span>
+                        <span className="badge-yellow text-[9px] py-0 px-1.5 font-bold">
+                          {item.estado}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+            </div>
+          )}
 
         </div>
       )}

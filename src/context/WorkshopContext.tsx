@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { Client, Vehicle, WorkOrder, SparePartItem, BudgetServiceItem, Empleado, RoleName, Turno, Sucursal } from '../types/autotech';
+import { Client, Vehicle, WorkOrder, SparePartItem, BudgetServiceItem, Empleado, RoleName, Turno, Sucursal, DisponibilidadHorariaResult } from '../types/autotech';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { getDefaultScreenForRole, isScreenAllowed } from '../utils/permissions';
 
@@ -162,6 +162,7 @@ interface WorkshopContextType {
   turnos: Turno[];
   sucursales: Sucursal[];
   getAvailableHours: (sucursalNombre: string, fecha: string) => string[];
+  consultarDisponibilidad: (sucursalNombre: string, fecha: string) => Promise<DisponibilidadHorariaResult>;
   registerTurno: (data: {
     clienteDni: string;
     clienteNombre?: string;
@@ -1279,7 +1280,16 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return timeStr.trim();
   };
 
-  // HU-09 CA 1: Sólo se ofrecen horarios disponibles de la sucursal elegida
+  // Helper para comprobar si un estado ocupa turno (HU-10 CA 2)
+  const isEstadoOcupado = (estado: string): boolean => {
+    if (!estado) return false;
+    const norm = estado.trim().toLowerCase();
+    if (norm === 'cancelado') return false;
+    return norm === 'solicitado' || norm.includes('confirmado');
+  };
+
+  // HU-09 CA 1 & HU-10 CA 1 & CA 2: Muestra horarios dentro del horario de atención de la sucursal
+  // y excluye horarios con turnos Solicitados o Confirmados
   const getAvailableHours = (sucursalNombre: string, fecha: string): string[] => {
     if (!fecha) return [];
     const norm = normalizeContextDate(fecha);
@@ -1296,11 +1306,11 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       allSlots.push(`${String(h).padStart(2, '0')}:00`);
     }
 
-    // Filtrar horarios ya reservados en turnos activos
+    // Filtrar horarios ya reservados en turnos Solicitados o Confirmados
     const occupied = new Set(
       turnos
         .filter(t => {
-          if (t.estado === 'Cancelado') return false;
+          if (!isEstadoOcupado(t.estado)) return false;
           const tNorm = normalizeContextDate(t.fecha);
           const sameDate = tNorm.iso === norm.iso || tNorm.ddmmyyyy === norm.ddmmyyyy;
           const sameSucursal = t.sucursal.toLowerCase() === suc.nombre.toLowerCase();
@@ -1310,6 +1320,66 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     );
 
     return allSlots.filter(slot => !occupied.has(normalizeContextTime(slot)));
+  };
+
+  // HU-10: Consultar disponibilidad horaria de una sucursal para una fecha
+  const consultarDisponibilidad = async (sucursalNombre: string, fecha: string): Promise<DisponibilidadHorariaResult> => {
+    const norm = normalizeContextDate(fecha);
+    const suc = sucursales.find(s => s.nombre.toLowerCase() === sucursalNombre.toLowerCase()) || sucursales[0];
+    const startHour = parseInt(suc.horarioApertura.split(':')[0], 10);
+    const endHour = parseInt(suc.horarioCierre.split(':')[0], 10);
+
+    const allSlots: string[] = [];
+    for (let h = startHour; h <= endHour; h++) {
+      allSlots.push(`${String(h).padStart(2, '0')}:00`);
+    }
+
+    // Intentar consultar al backend Express
+    try {
+      const resp = await fetch(`http://localhost:4000/api/turnos/disponibilidad?sucursal=${encodeURIComponent(suc.nombre)}&fecha=${encodeURIComponent(norm.ddmmyyyy)}`);
+      if (resp.ok) {
+        const data = await resp.json();
+        return data;
+      }
+    } catch {
+      // Fallback local
+    }
+
+    // Cálculo reactivo local
+    const turnosOcupados = turnos.filter(t => {
+      if (!isEstadoOcupado(t.estado)) return false;
+      const tNorm = normalizeContextDate(t.fecha);
+      const sameDate = tNorm.iso === norm.iso || tNorm.ddmmyyyy === norm.ddmmyyyy;
+      const sameSucursal = t.sucursal.toLowerCase() === suc.nombre.toLowerCase();
+      return sameDate && sameSucursal;
+    });
+
+    const occupiedHoursMap = new Map<string, string>();
+    turnosOcupados.forEach(t => {
+      occupiedHoursMap.set(normalizeContextTime(t.hora), t.estado);
+    });
+
+    const horariosDisponibles = allSlots.filter(slot => !occupiedHoursMap.has(normalizeContextTime(slot)));
+    const tieneDisponibilidad = horariosDisponibles.length > 0;
+
+    // HU-10 CA 3: Si no hay horarios libres se muestra "Sin disponibilidad para la fecha seleccionada"
+    const mensaje = tieneDisponibilidad
+      ? `Hay ${horariosDisponibles.length} horarios disponibles`
+      : 'Sin disponibilidad para la fecha seleccionada';
+
+    return {
+      sucursal: suc.nombre,
+      direccion: suc.direccion,
+      horarioAtencion: `${suc.horarioApertura} a ${suc.horarioCierre}`,
+      fecha: norm.ddmmyyyy,
+      fechaIso: norm.iso,
+      totalHorarios: allSlots.length,
+      tieneDisponibilidad,
+      mensaje,
+      horariosDisponibles,
+      horariosLibres: horariosDisponibles,
+      horariosOcupados: Array.from(occupiedHoursMap.entries()).map(([hora, estado]) => ({ hora, estado }))
+    };
   };
 
   // HU-09: Registrar Solicitud de Turno
@@ -1351,9 +1421,9 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       };
     }
 
-    // Criterio 4: Comprobar si el horario ya está ocupado
+    // Criterio 4: Comprobar si el horario ya está ocupado (Solicitado o Confirmado)
     const alreadyOccupied = turnos.some(t => {
-      if (t.estado === 'Cancelado') return false;
+      if (!isEstadoOcupado(t.estado)) return false;
       const tNorm = normalizeContextDate(t.fecha);
       const sameDate = tNorm.iso === norm.iso || tNorm.ddmmyyyy === norm.ddmmyyyy;
       const sameSuc = t.sucursal.toLowerCase() === valSucursal.toLowerCase();
@@ -1479,6 +1549,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       turnos,
       sucursales,
       getAvailableHours,
+      consultarDisponibilidad,
       registerTurno
     }}>
       {children}

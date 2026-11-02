@@ -77,6 +77,28 @@ export interface Sucursal {
 }
 
 // ==========================================
+// 3.2 DISPONIBILIDAD HORARIA (HU-10: Consultar disponibilidad horaria)
+// ==========================================
+export interface HorarioOcupado {
+  hora: string;
+  estado: string;
+}
+
+export interface DisponibilidadHorariaResult {
+  sucursal: string;
+  direccion?: string;
+  horarioAtencion: string;
+  fecha: string;
+  fechaIso?: string;
+  totalHorarios: number;
+  tieneDisponibilidad: boolean;
+  mensaje: string;
+  horariosDisponibles: string[];
+  horariosLibres: string[];
+  horariosOcupados: HorarioOcupado[];
+}
+
+// ==========================================
 // 4. TURNO (UML MVP: fechaHoraPropuesta, motivoConsulta, esEmergencia - HU-09)
 // ==========================================
 export interface Turno {

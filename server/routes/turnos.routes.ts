@@ -3,6 +3,7 @@ import {
   registrarTurno, 
   listarTurnos, 
   listarHorariosDisponibles, 
+  consultarDisponibilidadHoraria,
   listarSucursales,
   testCleanupTurnos 
 } from '../controllers/turnos.controller';
@@ -24,7 +25,8 @@ router.post('/public-register', registrarTurno);
 // Listado de turnos
 router.get('/', listarTurnos);
 
-// Consulta de horarios disponibles de la sucursal elegida (HU-09 CA 1)
+// HU-10: Consultar disponibilidad horaria de la sucursal elegida
+router.get('/disponibilidad', consultarDisponibilidadHoraria);
 router.get('/horarios-disponibles', listarHorariosDisponibles);
 
 // Consulta de sucursales

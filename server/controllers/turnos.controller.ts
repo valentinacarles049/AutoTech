@@ -93,10 +93,28 @@ export const getBranchTimeSlots = (apertura: string, cierre: string): string[] =
 };
 
 /**
- * HU-09: Criterio 1 - Sólo se ofrecen horarios disponibles de la sucursal elegida
- * GET /api/turnos/horarios-disponibles?sucursal=Centro&fecha=15/11/2026
+ * Helper para verificar si un estado de turno ocupa disponibilidad (HU-10 CA 2)
+ * Excluye los horarios con turnos Solicitados o Confirmados.
+ * Los turnos 'Cancelado' NO ocupan horario (permanecen libres).
  */
-export const listarHorariosDisponibles = async (req: Request, res: Response): Promise<void> => {
+export const isTurnoOcupandoHorario = (estado: string): boolean => {
+  if (!estado) return false;
+  const norm = estado.trim().toLowerCase();
+  if (norm === 'cancelado') return false;
+  return norm === 'solicitado' || norm.includes('confirmado');
+};
+
+/**
+ * HU-10: Consultar disponibilidad horaria
+ * GET /api/turnos/disponibilidad?sucursal=Centro&fecha=15/11/2026
+ * (y alias /api/turnos/horarios-disponibles)
+ * 
+ * Criterios de Aceptación:
+ * 1. Muestra los horarios dentro del horario de atención de la sucursal
+ * 2. Excluye los horarios con turnos Solicitados o Confirmados
+ * 3. Si no hay horarios libres se muestra "Sin disponibilidad para la fecha seleccionada"
+ */
+export const consultarDisponibilidadHoraria = async (req: Request, res: Response): Promise<void> => {
   try {
     const sucursalNombre = String(req.query.sucursal || 'Centro').trim();
     const fechaParam = String(req.query.fecha || '').trim();
@@ -112,47 +130,63 @@ export const listarHorariosDisponibles = async (req: Request, res: Response): Pr
       return;
     }
 
-    // HU-09 Criterio 3: No se permiten turnos en fechas pasadas
+    // Comprobar fecha pasada
     if (isPastDate(norm.parsedDate)) {
       res.status(400).json({ error: 'No se permiten turnos en fechas pasadas' });
       return;
     }
 
-    // Buscar configuración de la sucursal
+    // Buscar configuración de la sucursal (HU-10 CA 1)
     const sucursal = localSucursalesSeed.find(
       s => s.nombre.toLowerCase() === sucursalNombre.toLowerCase()
     ) || localSucursalesSeed[0];
 
+    // Criterio 1: Muestra los horarios dentro del horario de atención de la sucursal
     const allSlots = getBranchTimeSlots(sucursal.horario_apertura, sucursal.horario_cierre);
 
-    // Turnos ocupados en esa sucursal y fecha
+    // Criterio 2: Excluye los horarios con turnos Solicitados o Confirmados
     const turnosOcupados = localTurnosSeed.filter(t => {
-      if (t.estado === 'Cancelado') return false;
+      if (!isTurnoOcupandoHorario(t.estado)) return false;
       const tNorm = normalizeDate(t.fecha);
       const sameDate = tNorm.iso === norm.iso || tNorm.ddmmyyyy === norm.ddmmyyyy;
       const sameSucursal = t.sucursal.toLowerCase() === sucursal.nombre.toLowerCase();
       return sameDate && sameSucursal;
     });
 
-    const occupiedHours = new Set(turnosOcupados.map(t => normalizeTime(t.hora)));
+    const occupiedHoursMap = new Map<string, string>();
+    turnosOcupados.forEach(t => {
+      occupiedHoursMap.set(normalizeTime(t.hora), t.estado);
+    });
 
-    // Sólo se ofrecen los disponibles
-    const horariosDisponibles = allSlots.filter(slot => !occupiedHours.has(normalizeTime(slot)));
+    // Horarios libres dentro del horario de atención
+    const horariosDisponibles = allSlots.filter(slot => !occupiedHoursMap.has(normalizeTime(slot)));
+    const tieneDisponibilidad = horariosDisponibles.length > 0;
+
+    // Criterio 3: Si no hay horarios libres se muestra "Sin disponibilidad para la fecha seleccionada"
+    const mensaje = tieneDisponibilidad
+      ? `Hay ${horariosDisponibles.length} horarios disponibles`
+      : 'Sin disponibilidad para la fecha seleccionada';
 
     res.json({
       sucursal: sucursal.nombre,
+      direccion: sucursal.direccion,
       horarioAtencion: `${sucursal.horario_apertura} a ${sucursal.horario_cierre}`,
       fecha: norm.ddmmyyyy,
       fechaIso: norm.iso,
       totalHorarios: allSlots.length,
+      tieneDisponibilidad,
+      mensaje,
       horariosDisponibles,
-      horariosOcupados: Array.from(occupiedHours)
+      horariosLibres: horariosDisponibles,
+      horariosOcupados: Array.from(occupiedHoursMap.entries()).map(([hora, estado]) => ({ hora, estado }))
     });
   } catch (err: any) {
-    console.error('[Backend Turnos] Error obteniendo horarios disponibles:', err);
-    res.status(500).json({ error: 'Error al consultar disponibilidad de horarios' });
+    console.error('[Backend Turnos] Error obteniendo disponibilidad horaria:', err);
+    res.status(500).json({ error: 'Error al consultar disponibilidad horaria' });
   }
 };
+
+export const listarHorariosDisponibles = consultarDisponibilidadHoraria;
 
 /**
  * HU-09: Registrar Solicitud de Turno
@@ -234,9 +268,9 @@ export const registrarTurno = async (req: Request, res: Response): Promise<void>
     }
 
     // Criterio 4: El horario reservado deja de estar disponible / Validación de colisión
-    // Comprobar si ya existe un turno ocupado para esa sucursal, fecha y hora
+    // Comprobar si ya existe un turno ocupado (Solicitado o Confirmado) para esa sucursal, fecha y hora
     const slotOcupado = localTurnosSeed.some(t => {
-      if (t.estado === 'Cancelado') return false;
+      if (!isTurnoOcupandoHorario(t.estado)) return false;
       const tNorm = normalizeDate(t.fecha);
       const sameDate = tNorm.iso === norm.iso || tNorm.ddmmyyyy === norm.ddmmyyyy;
       const sameSucursal = t.sucursal.toLowerCase() === sucursalConfig.nombre.toLowerCase();
