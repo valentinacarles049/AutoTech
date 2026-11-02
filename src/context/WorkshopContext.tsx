@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { Client, Vehicle, WorkOrder, SparePartItem, BudgetServiceItem, Empleado, RoleName } from '../types/autotech';
+import { Client, Vehicle, WorkOrder, SparePartItem, BudgetServiceItem, Empleado, RoleName, Turno, Sucursal } from '../types/autotech';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { getDefaultScreenForRole, isScreenAllowed } from '../utils/permissions';
 
@@ -145,7 +145,7 @@ interface WorkshopContextType {
   purchaseRequestSuccess: boolean;
   createPurchaseRequest: (sku: string, qty: number) => void;
 
-  // Recepción (Budget)
+  // Recepción (Budget & Turnos - HU-09)
   budgetServices: BudgetServiceItem[];
   addBudgetService: (service: Omit<BudgetServiceItem, 'id' | 'subtotal'>) => void;
   removeBudgetService: (id: string) => void;
@@ -157,7 +157,33 @@ interface WorkshopContextType {
   selectVehicleForReception: (plate: string) => void;
   mileageEntry: number;
   setMileageEntry: (m: number) => void;
+
+  // HU-09: Registrar solicitud de turno
+  turnos: Turno[];
+  sucursales: Sucursal[];
+  getAvailableHours: (sucursalNombre: string, fecha: string) => string[];
+  registerTurno: (data: {
+    clienteDni: string;
+    clienteNombre?: string;
+    vehiculoDominio: string;
+    motivoConsulta: string;
+    sucursal: string;
+    fecha: string;
+    hora: string;
+  }) => Promise<{
+    success: boolean;
+    error?: string;
+    message?: string;
+    nroTurno?: number;
+    turno?: Turno;
+  }>;
 }
+
+export const defaultSucursales: Sucursal[] = [
+  { id: 1, nombre: 'Centro', direccion: 'Av. Colón 750, Córdoba', horarioApertura: '08:00', horarioCierre: '17:00' },
+  { id: 2, nombre: 'Norte', direccion: 'Av. Rafael Núñez 4200, Córdoba', horarioApertura: '08:00', horarioCierre: '18:00' },
+  { id: 3, nombre: 'Sur', direccion: 'Av. Vélez Sársfield 3100, Córdoba', horarioApertura: '08:00', horarioCierre: '17:00' }
+];
 
 const initialClients: Client[] = [
   {
@@ -260,6 +286,22 @@ const initialClients: Client[] = [
     vehicleCount: 1,
     status: 'Activo'
   },
+  {
+    id: 'cli-juan-perez',
+    nroCliente: 1007,
+    nombre: 'Juan',
+    apellido: 'Pérez',
+    name: 'Juan Pérez',
+    tipoDocumento: 'DNI',
+    nroDocumento: '30123456',
+    cuitDni: '30123456',
+    email: 'juan.perez@gmail.com',
+    phone: '0351-154987654',
+    localidad: 'Córdoba Capital',
+    nivelFidelizacion: null,
+    vehicleCount: 1,
+    status: 'Activo'
+  },
 ];
 
 const initialVehicles: Vehicle[] = [
@@ -269,6 +311,21 @@ const initialVehicles: Vehicle[] = [
   { plate: 'AD-991-LK', brandModel: 'Ford Ranger 3.2 TDCi Limited', year: 2019, vin: '8AFAR2341KA098123', mileage: 104000, clientId: 'cli-2', status: 'Activo' },
   { plate: 'AD-332-LM', brandModel: 'Ford Ranger 3.2 TDCi XLT', year: 2019, vin: '8AFAR3312KA098124', mileage: 98400, clientId: 'cli-3', status: 'En taller' },
   { plate: 'AD-884-XY', brandModel: 'Chevrolet S10 2.8 CTDI', year: 2021, vin: '8AGBA3CD4N0981921', mileage: 78000, clientId: 'cli-6', status: 'Activo' },
+  { 
+    plate: 'AB123CD', 
+    dominio: 'AB123CD', 
+    brandModel: 'Toyota Corolla 2.0 SEG', 
+    marca: 'Toyota', 
+    modelo: 'Corolla 2.0 SEG', 
+    year: 2022, 
+    año: 2022, 
+    vin: '8AJBA45CD3N0198274', 
+    mileage: 45000, 
+    kilometrajeActual: 45000, 
+    clientId: 'cli-juan-perez', 
+    clienteId: 'cli-juan-perez', 
+    status: 'Activo' 
+  },
 ];
 
 const initialWorkOrders: WorkOrder[] = [
@@ -1162,6 +1219,227 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }));
   };
 
+  // ============================================================
+  // HU-09: Turnos y Disponibilidad de Horarios
+  // ============================================================
+  const [turnos, setTurnos] = useState<Turno[]>([]);
+  const [sucursales] = useState<Sucursal[]>(defaultSucursales);
+  const [nextTurnoNumber, setNextTurnoNumber] = useState<number>(1001);
+
+  const normalizeContextDate = (dateStr: string): { iso: string; ddmmyyyy: string; parsedDate: Date | null } => {
+    if (!dateStr) return { iso: '', ddmmyyyy: '', parsedDate: null };
+    const trimmed = dateStr.trim();
+    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) {
+      const [d, m, y] = trimmed.split('/');
+      const padD = d.padStart(2, '0');
+      const padM = m.padStart(2, '0');
+      return {
+        iso: `${y}-${padM}-${padD}`,
+        ddmmyyyy: `${padD}/${padM}/${y}`,
+        parsedDate: new Date(Number(y), Number(padM) - 1, Number(d), 0, 0, 0)
+      };
+    }
+    if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(trimmed)) {
+      const [y, m, d] = trimmed.split('-');
+      const padD = d.padStart(2, '0');
+      const padM = m.padStart(2, '0');
+      return {
+        iso: `${y}-${padM}-${padD}`,
+        ddmmyyyy: `${padD}/${padM}/${y}`,
+        parsedDate: new Date(Number(y), Number(padM) - 1, Number(d), 0, 0, 0)
+      };
+    }
+    const dt = new Date(trimmed);
+    if (!isNaN(dt.getTime())) {
+      const y = dt.getFullYear();
+      const padM = String(dt.getMonth() + 1).padStart(2, '0');
+      const padD = String(dt.getDate()).padStart(2, '0');
+      return {
+        iso: `${y}-${padM}-${padD}`,
+        ddmmyyyy: `${padD}/${padM}/${y}`,
+        parsedDate: new Date(y, dt.getMonth(), dt.getDate(), 0, 0, 0)
+      };
+    }
+    return { iso: trimmed, ddmmyyyy: trimmed, parsedDate: null };
+  };
+
+  const isContextPastDate = (dateObj: Date | null): boolean => {
+    if (!dateObj) return false;
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    return dateObj.getTime() < today.getTime();
+  };
+
+  const normalizeContextTime = (timeStr: string): string => {
+    if (!timeStr) return '';
+    const parts = timeStr.trim().split(':');
+    if (parts.length >= 2) {
+      return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}`;
+    }
+    return timeStr.trim();
+  };
+
+  // HU-09 CA 1: Sólo se ofrecen horarios disponibles de la sucursal elegida
+  const getAvailableHours = (sucursalNombre: string, fecha: string): string[] => {
+    if (!fecha) return [];
+    const norm = normalizeContextDate(fecha);
+    if (!norm.parsedDate || isContextPastDate(norm.parsedDate)) {
+      return [];
+    }
+
+    const suc = sucursales.find(s => s.nombre.toLowerCase() === sucursalNombre.toLowerCase()) || sucursales[0];
+    const startHour = parseInt(suc.horarioApertura.split(':')[0], 10);
+    const endHour = parseInt(suc.horarioCierre.split(':')[0], 10);
+
+    const allSlots: string[] = [];
+    for (let h = startHour; h <= endHour; h++) {
+      allSlots.push(`${String(h).padStart(2, '0')}:00`);
+    }
+
+    // Filtrar horarios ya reservados en turnos activos
+    const occupied = new Set(
+      turnos
+        .filter(t => {
+          if (t.estado === 'Cancelado') return false;
+          const tNorm = normalizeContextDate(t.fecha);
+          const sameDate = tNorm.iso === norm.iso || tNorm.ddmmyyyy === norm.ddmmyyyy;
+          const sameSucursal = t.sucursal.toLowerCase() === suc.nombre.toLowerCase();
+          return sameDate && sameSucursal;
+        })
+        .map(t => normalizeContextTime(t.hora))
+    );
+
+    return allSlots.filter(slot => !occupied.has(normalizeContextTime(slot)));
+  };
+
+  // HU-09: Registrar Solicitud de Turno
+  const registerTurno = async (data: {
+    clienteDni: string;
+    clienteNombre?: string;
+    vehiculoDominio: string;
+    motivoConsulta: string;
+    sucursal: string;
+    fecha: string;
+    hora: string;
+  }): Promise<{
+    success: boolean;
+    error?: string;
+    message?: string;
+    nroTurno?: number;
+    turno?: Turno;
+  }> => {
+    const valDni = String(data.clienteDni || '').trim();
+    const valPatente = String(data.vehiculoDominio || '').trim().toUpperCase();
+    const valMotivo = String(data.motivoConsulta || '').trim();
+    const valSucursal = String(data.sucursal || 'Centro').trim();
+    const valFecha = String(data.fecha || '').trim();
+    const valHora = normalizeContextTime(String(data.hora || ''));
+
+    if (!valDni || !valPatente || !valMotivo || !valSucursal || !valFecha || !valHora) {
+      return {
+        success: false,
+        error: 'Todos los campos son obligatorios: DNI del cliente, vehículo, motivo, sucursal, fecha y horario'
+      };
+    }
+
+    // Criterio 3: No se permiten turnos en fechas pasadas
+    const norm = normalizeContextDate(valFecha);
+    if (!norm.parsedDate || isContextPastDate(norm.parsedDate)) {
+      return {
+        success: false,
+        error: 'No se permiten turnos en fechas pasadas'
+      };
+    }
+
+    // Criterio 4: Comprobar si el horario ya está ocupado
+    const alreadyOccupied = turnos.some(t => {
+      if (t.estado === 'Cancelado') return false;
+      const tNorm = normalizeContextDate(t.fecha);
+      const sameDate = tNorm.iso === norm.iso || tNorm.ddmmyyyy === norm.ddmmyyyy;
+      const sameSuc = t.sucursal.toLowerCase() === valSucursal.toLowerCase();
+      const sameH = normalizeContextTime(t.hora) === valHora;
+      return sameDate && sameSuc && sameH;
+    });
+
+    if (alreadyOccupied) {
+      // Mensaje exacto HU-09
+      return {
+        success: false,
+        error: 'El horario seleccionado no está disponible. Seleccione otro horario'
+      };
+    }
+
+    // Persistir en backend Express si está disponible
+    let assignedNroTurno = nextTurnoNumber;
+    try {
+      const response = await fetch('http://localhost:4000/api/turnos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          cliente_dni: valDni,
+          cliente_nombre: data.clienteNombre,
+          vehiculo_dominio: valPatente,
+          motivo_consulta: valMotivo,
+          sucursal: valSucursal,
+          fecha: norm.ddmmyyyy,
+          hora: valHora
+        })
+      });
+
+      const resData = await response.json();
+      if (!response.ok) {
+        if (response.status === 409 || resData.error?.includes('no está disponible')) {
+          return {
+            success: false,
+            error: 'El horario seleccionado no está disponible. Seleccione otro horario'
+          };
+        }
+        if (resData.error?.includes('fechas pasadas')) {
+          return {
+            success: false,
+            error: 'No se permiten turnos en fechas pasadas'
+          };
+        }
+      } else if (resData.nro_turno || resData.numeroTurno) {
+        assignedNroTurno = resData.nro_turno || resData.numeroTurno;
+      }
+    } catch {
+      // Fallback local en modo offline / tests
+    }
+
+    setNextTurnoNumber(prev => Math.max(prev + 1, assignedNroTurno + 1));
+
+    const cli = clients.find(c => c.nroDocumento.replace(/[\s-]/g, '') === valDni.replace(/[\s-]/g, ''));
+    const cliNombre = cli ? cli.name : (data.clienteNombre || 'Cliente');
+
+    const nuevoTurno: Turno = {
+      id: `turno-${Date.now()}`,
+      nroTurno: assignedNroTurno,
+      vehiculoDominio: valPatente,
+      clienteId: cli?.id,
+      clienteNombre: cliNombre,
+      clienteDocumento: valDni,
+      sucursal: valSucursal,
+      fecha: norm.ddmmyyyy,
+      hora: valHora,
+      fechaHoraPropuesta: `${norm.iso}T${valHora}:00`,
+      motivoConsulta: valMotivo,
+      esEmergencia: false,
+      estado: 'Solicitado' // Criterio 2: El turno nace en estado "Solicitado"
+    };
+
+    // Criterio 4: El horario reservado deja de estar disponible
+    setTurnos(prev => [nuevoTurno, ...prev]);
+
+    return {
+      success: true,
+      message: 'Turno registrado exitosamente',
+      nroTurno: assignedNroTurno,
+      turno: nuevoTurno
+    };
+  };
+
   return (
     <WorkshopContext.Provider value={{
       isDark,
@@ -1197,7 +1475,11 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setSelectedReceptionVehicle,
       selectVehicleForReception,
       mileageEntry,
-      setMileageEntry
+      setMileageEntry,
+      turnos,
+      sucursales,
+      getAvailableHours,
+      registerTurno
     }}>
       {children}
     </WorkshopContext.Provider>

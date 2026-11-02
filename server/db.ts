@@ -179,6 +179,21 @@ export const localClientsSeed: LocalClient[] = [
     nivel_fidelizacion: null,
     fecha_alta: '2026-02-05',
     estado: 'Activo'
+  },
+  {
+    id: 'cli-juan-perez',
+    nro_cliente: 1005,
+    nombre: 'Juan',
+    apellido: 'Pérez',
+    tipo_documento: 'DNI',
+    nro_documento: '30123456',
+    razon_social: null,
+    email: 'juan.perez@gmail.com',
+    telefono: '0351-154987654',
+    localidad: 'Córdoba Capital',
+    nivel_fidelizacion: null,
+    fecha_alta: '2026-02-10',
+    estado: 'Activo'
   }
 ];
 
@@ -201,7 +216,53 @@ export const localVehiclesSeed: LocalVehicle[] = [
   { dominio: 'AC-789-DD', cliente_id: 'cli-1', marca: 'Volkswagen', modelo: 'Amarok V6 3.0', anio: 2020, kilometraje_actual: 89000, estado: 'Activo' },
   { dominio: 'AD-991-LK', cliente_id: 'cli-2', marca: 'Ford', modelo: 'Ranger 3.2 TDCi Limited', anio: 2019, kilometraje_actual: 104000, estado: 'Activo' },
   { dominio: 'AD-332-LM', cliente_id: 'cli-3', marca: 'Ford', modelo: 'Ranger 3.2 TDCi XLT', anio: 2019, kilometraje_actual: 98400, estado: 'En taller' },
-  { dominio: 'AD-884-XY', cliente_id: 'cli-6', marca: 'Chevrolet', modelo: 'S10 2.8 CTDI', anio: 2021, kilometraje_actual: 78000, estado: 'Activo' }
+  { dominio: 'AD-884-XY', cliente_id: 'cli-6', marca: 'Chevrolet', modelo: 'S10 2.8 CTDI', anio: 2021, kilometraje_actual: 78000, estado: 'Activo' },
+  { dominio: 'AB123CD', cliente_id: 'cli-juan-perez', marca: 'Toyota', modelo: 'Corolla 2.0 SEG', anio: 2022, kilometraje_actual: 45000, estado: 'Activo' }
 ];
+
+// ============================================================
+// Sucursales y Turnos (HU-09: Registrar Solicitud de Turno)
+// ============================================================
+export interface LocalSucursal {
+  id: number;
+  nombre: string;
+  direccion: string;
+  horario_apertura: string; // ej: "08:00"
+  horario_cierre: string;   // ej: "17:00"
+}
+
+export const localSucursalesSeed: LocalSucursal[] = [
+  { id: 1, nombre: 'Centro', direccion: 'Av. Colón 750, Córdoba', horario_apertura: '08:00', horario_cierre: '17:00' },
+  { id: 2, nombre: 'Norte', direccion: 'Av. Rafael Núñez 4200, Córdoba', horario_apertura: '08:00', horario_cierre: '18:00' },
+  { id: 3, nombre: 'Sur', direccion: 'Av. Vélez Sársfield 3100, Córdoba', horario_apertura: '08:00', horario_cierre: '17:00' }
+];
+
+export interface LocalTurno {
+  id: string;
+  nro_turno: number;
+  vehiculo_dominio: string;
+  cliente_id?: string;
+  cliente_nombre?: string;
+  cliente_documento?: string;
+  sucursal: string;
+  fecha: string; // formato "YYYY-MM-DD" o normalizado
+  hora: string;  // formato "HH:mm"
+  motivo_consulta: string;
+  estado: 'Solicitado' | 'Pendiente de Confirmación (24hs)' | 'Confirmado' | 'En Taller' | 'Cancelado';
+  es_emergencia?: boolean;
+  created_at?: string;
+}
+
+let nextTurnoNumber = 1001;
+
+export const getNextTurnoNumber = (): number => {
+  return nextTurnoNumber++;
+};
+
+export const resetTurnoCounter = (val: number = 1001): void => {
+  nextTurnoNumber = val;
+};
+
+export const localTurnosSeed: LocalTurno[] = [];
 
 

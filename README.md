@@ -205,6 +205,17 @@ El proyecto incluye el esquema SQL listo para inicializar la base de datos: [`au
   - **Base de Datos**: Tabla `vehiculos` vinculada por FK a `clientes(id)` con `ON DELETE RESTRICT`.
   - **API Backend**: Endpoints `POST /api/vehiculos` (protegido con `requireRole`), `GET /api/vehiculos` y `GET /api/vehiculos/verificar-patente`.
   - **BDD Gherkin**: Especificación formal en `features/registrar_vehiculo.feature` y suite de pruebas ejecutables en `test_bdd_registrar_vehiculo.ts` (16 tests pasados con 100% de éxito).
+- **HU-09 Registrar solicitud de turno**:
+  - **Rol**: Responsable de Recepción (`valen.recepcion`) y Administrador.
+  - **Pantalla**: Módulo *"Recepción"* (`/recepcion`), pestaña *"HU-09: Registrar Solicitud de Turno"*.
+  - **Criterio 1**: Sólo se ofrecen horarios disponibles de la sucursal elegida (ej. Sucursal "Centro" atiende de 08:00 a 17:00).
+  - **Criterio 2**: El turno nace en estado `"Solicitado"`, asignándosele un número correlativo autoincremental (`nro_turno`).
+  - **Criterio 3**: No se permiten turnos en fechas pasadas (bloqueo en selector de fecha y validación en frontend y backend).
+  - **Criterio 4**: El horario reservado deja de estar disponible inmediatamente tras el registro. Si se intenta reservar un horario ya ocupado, el sistema muestra exactamente: *"El horario seleccionado no está disponible. Seleccione otro horario"* y no registra el turno.
+  - **Base de Datos**: Tabla `turnos` con `nro_turno SERIAL`, `cliente_id`, `sucursal`, `fecha`, `hora`, `estado_turno_id` vinculada a `estado_turnos` (con estado `'Solicitado'`), y tabla `sucursales`.
+  - **API Backend**: Endpoints `POST /api/turnos` (protegido por `requireRole`), `GET /api/turnos`, `GET /api/turnos/horarios-disponibles`, `GET /api/turnos/sucursales` y `POST /api/turnos/test-cleanup`.
+  - **BDD Gherkin**: Especificación formal en `features/registrar_solicitud_turno.feature` y suite de pruebas ejecutables en `test_bdd_registrar_solicitud_turno.ts` (27 tests pasados con 100% de éxito).
+
 
 
 

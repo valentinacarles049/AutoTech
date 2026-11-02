@@ -18,14 +18,29 @@ CREATE TABLE IF NOT EXISTS estado_turnos (
   descripcion_estado VARCHAR(50) NOT NULL UNIQUE
 );
 
--- Estados iniciales
+-- Estados iniciales (HU-09: El turno nace en estado 'Solicitado')
 INSERT INTO estado_turnos (descripcion_estado) VALUES 
+('Solicitado'),
 ('Pendiente de Confirmación (24hs)'),
 ('Confirmado'),
 ('En Taller'),
 ('Cancelado')
 ON CONFLICT (descripcion_estado) DO NOTHING;
 
+-- 1.1 TABLA: SUCURSALES (HU-09: Registro de solicitud de turno)
+CREATE TABLE IF NOT EXISTS sucursales (
+  id SERIAL PRIMARY KEY,
+  nombre VARCHAR(80) NOT NULL UNIQUE,
+  direccion VARCHAR(150),
+  horario_apertura TIME NOT NULL DEFAULT '08:00',
+  horario_cierre TIME NOT NULL DEFAULT '17:00'
+);
+
+INSERT INTO sucursales (nombre, direccion, horario_apertura, horario_cierre) VALUES
+('Centro', 'Av. Colón 750, Córdoba', '08:00', '17:00'),
+('Norte', 'Av. Rafael Núñez 4200, Córdoba', '08:00', '18:00'),
+('Sur', 'Av. Vélez Sársfield 3100, Córdoba', '08:00', '17:00')
+ON CONFLICT (nombre) DO NOTHING;
 
 -- 2. TABLA: CLIENTES (UML: Cliente)
 CREATE TABLE IF NOT EXISTS clientes (
@@ -82,19 +97,44 @@ CREATE TABLE IF NOT EXISTS vehiculos (
 );
 
 
--- 4. TABLA: TURNOS (UML: Turno)
+-- 4. TABLA: TURNOS (UML: Turno - HU-09: Registrar solicitud de turno)
 -- Relaciones:
 --   1 Vehículo tiene 1..* Turnos
 --   1 Turno tiene 1 EstadoTurno
 CREATE TABLE IF NOT EXISTS turnos (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  nro_turno SERIAL, -- Número correlativo autoincremental de turno
   vehiculo_dominio VARCHAR(15) NOT NULL REFERENCES vehiculos(dominio) ON DELETE CASCADE,
+  cliente_id UUID REFERENCES clientes(id) ON DELETE RESTRICT,
+  sucursal VARCHAR(80) NOT NULL DEFAULT 'Centro',
+  fecha DATE NOT NULL DEFAULT CURRENT_DATE,
+  hora VARCHAR(10) NOT NULL DEFAULT '08:00',
   estado_turno_id INT NOT NULL REFERENCES estado_turnos(id),
   fecha_hora_propuesta TIMESTAMP NOT NULL,
   motivo_consulta TEXT NOT NULL,
   es_emergencia BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Compatibilidad para bases de datos existentes
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='turnos' AND column_name='nro_turno') THEN
+    ALTER TABLE turnos ADD COLUMN nro_turno SERIAL;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='turnos' AND column_name='cliente_id') THEN
+    ALTER TABLE turnos ADD COLUMN cliente_id UUID REFERENCES clientes(id) ON DELETE RESTRICT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='turnos' AND column_name='sucursal') THEN
+    ALTER TABLE turnos ADD COLUMN sucursal VARCHAR(80) NOT NULL DEFAULT 'Centro';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='turnos' AND column_name='fecha') THEN
+    ALTER TABLE turnos ADD COLUMN fecha DATE NOT NULL DEFAULT CURRENT_DATE;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='turnos' AND column_name='hora') THEN
+    ALTER TABLE turnos ADD COLUMN hora VARCHAR(10) NOT NULL DEFAULT '08:00';
+  END IF;
+END $$;
 
 
 -- 5. TABLA: PRESUPUESTOS (UML: Presupuesto)
@@ -406,6 +446,7 @@ DECLARE
   cli1_id UUID;
   cli2_id UUID;
   cli3_id UUID;
+  cli_juan_id UUID;
   turno1_id UUID;
 BEGIN
   -- Insertar Clientes si no existen
@@ -425,6 +466,11 @@ BEGIN
     INSERT INTO clientes (nombre, apellido, tipo_documento, nro_documento, razon_social, email, telefono, localidad, nivel_fidelizacion)
     VALUES ('Carlos', 'Morales', 'DNI', '20-40111222-3', NULL, 'carlos.morales@hotmail.com', '0351-4112233', 'Córdoba Capital', NULL);
 
+    -- HU-09: Cliente Juan Pérez para registro de solicitud de turnos
+    INSERT INTO clientes (nombre, apellido, tipo_documento, nro_documento, razon_social, email, telefono, localidad, nivel_fidelizacion)
+    VALUES ('Juan', 'Pérez', 'DNI', '30123456', NULL, 'juan.perez@gmail.com', '0351-154987654', 'Córdoba Capital', NULL)
+    RETURNING id INTO cli_juan_id;
+
     -- Insertar Vehículos asociados
     INSERT INTO vehiculos (dominio, cliente_id, marca, modelo, anio, kilometraje_actual)
     VALUES 
@@ -432,7 +478,8 @@ BEGIN
     ('AE-456-CC', cli1_id, 'Mercedes-Benz', 'Sprinter 516', 2021, 112500),
     ('AC-789-DD', cli1_id, 'Volkswagen', 'Amarok V6 3.0', 2020, 89000),
     ('AD-991-LK', cli2_id, 'Ford', 'Ranger 3.2 TDCi Limited', 2019, 104000),
-    ('AD-332-LM', cli3_id, 'Ford', 'Ranger 3.2 TDCi XLT', 2019, 98400);
+    ('AD-332-LM', cli3_id, 'Ford', 'Ranger 3.2 TDCi XLT', 2019, 98400),
+    ('AB123CD', cli_juan_id, 'Toyota', 'Corolla 2.0 SEG', 2022, 45000);
 
     -- Insertar Turno Inicial
     INSERT INTO turnos (vehiculo_dominio, estado_turno_id, fecha_hora_propuesta, motivo_consulta, es_emergencia)

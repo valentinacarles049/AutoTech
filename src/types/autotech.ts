@@ -56,23 +56,44 @@ export interface Vehicle {
 export type Vehiculo = Vehicle;
 
 // ==========================================
-// 3. ESTADO TURNO (UML MVP: descripcionEstado)
+// 3. ESTADO TURNO (UML MVP: descripcionEstado - HU-09: 'Solicitado')
 // ==========================================
+export type TurnoEstadoNombre = 'Solicitado' | 'Pendiente' | 'Confirmado (24hs)' | 'Confirmado' | 'En Taller' | 'Cancelado';
+
 export interface EstadoTurno {
   id: string;
-  descripcionEstado: 'Pendiente' | 'Confirmado (24hs)' | 'En Taller' | 'Cancelado';
+  descripcionEstado: TurnoEstadoNombre;
 }
 
 // ==========================================
-// 4. TURNO (UML MVP: fechaHoraPropuesta, motivoConsulta, esEmergencia)
+// 3.1 SUCURSAL (HU-09: Registrar solicitud de turno)
+// ==========================================
+export interface Sucursal {
+  id: number;
+  nombre: string;
+  direccion: string;
+  horarioApertura: string;
+  horarioCierre: string;
+}
+
+// ==========================================
+// 4. TURNO (UML MVP: fechaHoraPropuesta, motivoConsulta, esEmergencia - HU-09)
 // ==========================================
 export interface Turno {
   id: string;
-  vehiculoDominio: string; // Relación 1..* con Vehículo
+  nroTurno: number; // Número de turno correlativo generado por el sistema
+  vehiculoDominio: string; // Relación 1..* con Vehículo (patente)
+  clienteId?: string;
+  clienteNombre?: string;
+  clienteDocumento?: string;
+  sucursal: string; // ej: "Centro"
+  fecha: string; // ej: "15/11/2026"
+  hora: string; // ej: "09:00"
   fechaHoraPropuesta: string;
   motivoConsulta: string;
   esEmergencia: boolean;
-  estadoTurnoId: string; // Relación 1..1 con EstadoTurno
+  estado: TurnoEstadoNombre;
+  estadoTurnoId?: string; // Relación 1..1 con EstadoTurno
   presupuestoId?: string; // Relación 0..1 con Presupuesto
 }
 
