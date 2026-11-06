@@ -134,6 +134,19 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='turnos' AND column_name='hora') THEN
     ALTER TABLE turnos ADD COLUMN hora VARCHAR(10) NOT NULL DEFAULT '08:00';
   END IF;
+  -- HU-11: Columnas para confirmación de turnos
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='turnos' AND column_name='fecha_confirmacion') THEN
+    ALTER TABLE turnos ADD COLUMN fecha_confirmacion VARCHAR(20);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='turnos' AND column_name='hora_confirmacion') THEN
+    ALTER TABLE turnos ADD COLUMN hora_confirmacion VARCHAR(10);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='turnos' AND column_name='medio_confirmacion') THEN
+    ALTER TABLE turnos ADD COLUMN medio_confirmacion VARCHAR(30);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='turnos' AND column_name='notificacion_enviada') THEN
+    ALTER TABLE turnos ADD COLUMN notificacion_enviada BOOLEAN DEFAULT FALSE;
+  END IF;
 END $$;
 
 

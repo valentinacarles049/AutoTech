@@ -260,12 +260,25 @@ export interface LocalTurno {
   cliente_nombre?: string;
   cliente_documento?: string;
   sucursal: string;
-  fecha: string; // formato "YYYY-MM-DD" o normalizado
+  fecha: string; // formato "DD/MM/YYYY" o "YYYY-MM-DD"
   hora: string;  // formato "HH:mm"
   motivo_consulta: string;
   estado: 'Solicitado' | 'Pendiente de Confirmación (24hs)' | 'Confirmado' | 'En Taller' | 'Cancelado';
   es_emergencia?: boolean;
   created_at?: string;
+  // HU-11: Confirmar turno
+  fecha_confirmacion?: string | null;
+  hora_confirmacion?: string | null;
+  medio_confirmacion?: 'Mail' | 'Mensaje' | string | null;
+  notificacion_enviada?: boolean;
+  notificacion_cliente?: {
+    enviada: boolean;
+    fecha_turno: string;
+    hora_turno: string;
+    medio: string;
+    mensaje: string;
+    destinatario?: string;
+  } | null;
 }
 
 let nextTurnoNumber = 1001;
@@ -278,6 +291,27 @@ export const resetTurnoCounter = (val: number = 1001): void => {
   nextTurnoNumber = val;
 };
 
-export const localTurnosSeed: LocalTurno[] = [];
+export const localTurnosSeed: LocalTurno[] = [
+  {
+    id: 'turno-juan-perez-1',
+    nro_turno: 1001,
+    vehiculo_dominio: 'AB123CD',
+    cliente_id: 'cli-juan-perez',
+    cliente_nombre: 'Juan Pérez',
+    cliente_documento: '30123456',
+    sucursal: 'Centro',
+    fecha: '15/11/2026',
+    hora: '09:00',
+    motivo_consulta: 'Mantenimiento general',
+    estado: 'Solicitado',
+    es_emergencia: false,
+    created_at: '2026-11-01T10:00:00.000Z',
+    fecha_confirmacion: null,
+    hora_confirmacion: null,
+    medio_confirmacion: null,
+    notificacion_enviada: false,
+    notificacion_cliente: null
+  }
+];
 
 

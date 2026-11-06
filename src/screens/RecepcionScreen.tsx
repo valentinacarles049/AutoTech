@@ -17,10 +17,14 @@ import {
   ListFilter,
   ArrowRight,
   ShieldAlert,
-  ClipboardList
+  ClipboardList,
+  Mail,
+  MessageSquare,
+  Send,
+  CheckCheck
 } from 'lucide-react';
 import { useWorkshop } from '../context/WorkshopContext';
-import { Turno, Vehicle, Client, DisponibilidadHorariaResult } from '../types/autotech';
+import { Turno, Vehicle, Client, DisponibilidadHorariaResult, ConfirmarTurnoResult } from '../types/autotech';
 
 export const RecepcionScreen: React.FC = () => {
   const { 
@@ -39,11 +43,12 @@ export const RecepcionScreen: React.FC = () => {
     sucursales,
     getAvailableHours,
     consultarDisponibilidad,
-    registerTurno
+    registerTurno,
+    confirmarTurno
   } = useWorkshop();
 
-  // Tab activo dentro del módulo de recepción (HU-09 & HU-10)
-  const [activeTab, setActiveTab] = useState<'nuevo-turno' | 'disponibilidad' | 'agenda' | 'presupuesto'>('nuevo-turno');
+  // Tab activo dentro del módulo de recepción (HU-09, HU-10, HU-11)
+  const [activeTab, setActiveTab] = useState<'nuevo-turno' | 'disponibilidad' | 'confirmar-turno' | 'agenda' | 'presupuesto'>('nuevo-turno');
 
   // Estados para HU-10: Consultar disponibilidad horaria
   const [dispSucursal, setDispSucursal] = useState<string>(() => sucursales[0]?.nombre || 'Centro');
@@ -85,6 +90,58 @@ export const RecepcionScreen: React.FC = () => {
   const [newServiceRate, setNewServiceRate] = useState(28000);
   const [isAddingService, setIsAddingService] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Estados para HU-11: Confirmar Turno
+  const [confirmTurnoId, setConfirmTurnoId] = useState<string>('');
+  const [confirmMedio, setConfirmMedio] = useState<'Mail' | 'Mensaje'>('Mail');
+  const [confirmFechaHoraActual, setConfirmFechaHoraActual] = useState<string>('13/11/2026 10:00');
+  const [confirmError, setConfirmError] = useState<string | null>(null);
+  const [confirmSuccess, setConfirmSuccess] = useState<string | null>(null);
+  const [confirmResult, setConfirmResult] = useState<ConfirmarTurnoResult | null>(null);
+  const [isConfirming, setIsConfirming] = useState<boolean>(false);
+
+  // Sincronizar selección de turno a confirmar
+  useEffect(() => {
+    if (!confirmTurnoId && turnos.length > 0) {
+      const solicitado = turnos.find(t => t.estado === 'Solicitado') || turnos[0];
+      setConfirmTurnoId(solicitado.id);
+    }
+  }, [turnos, confirmTurnoId]);
+
+  const handleConfirmarTurno = async () => {
+    setConfirmError(null);
+    setConfirmSuccess(null);
+    setConfirmResult(null);
+
+    const target = turnos.find(t => t.id === confirmTurnoId) || turnos[0];
+    if (!target) {
+      setConfirmError('Seleccione un turno para confirmar');
+      return;
+    }
+
+    setIsConfirming(true);
+    try {
+      const res = await confirmarTurno({
+        turnoId: target.id,
+        nroTurno: target.nroTurno,
+        vehiculoDominio: target.vehiculoDominio,
+        clienteDni: target.clienteDocumento,
+        medio: confirmMedio,
+        fechaHoraActual: confirmFechaHoraActual
+      });
+
+      setConfirmResult(res);
+      if (res.success) {
+        setConfirmSuccess(res.message || 'Turno confirmado exitosamente');
+      } else {
+        setConfirmError(res.error || res.message || 'El plazo de confirmación venció');
+      }
+    } catch (err: any) {
+      setConfirmError(err.message || 'Error al procesar la confirmación del turno');
+    } finally {
+      setIsConfirming(false);
+    }
+  };
 
   // Fecha mínima permitida (Hoy) para prevenir turnos en fechas pasadas (HU-09 CA 3)
   const todayISO = useMemo(() => {
@@ -357,6 +414,18 @@ export const RecepcionScreen: React.FC = () => {
         >
           <Clock className="w-4 h-4" />
           <span>HU-10: Consultar Disponibilidad</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('confirmar-turno')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center space-x-2 transition-all ${
+            activeTab === 'confirmar-turno'
+              ? 'bg-red-600 text-white shadow-md shadow-red-600/30'
+              : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+          }`}
+        >
+          <CheckCheck className="w-4 h-4" />
+          <span>HU-11: Confirmar Turno</span>
         </button>
 
         <button
@@ -911,6 +980,221 @@ export const RecepcionScreen: React.FC = () => {
       )}
 
       {/* ============================================================ */}
+      {/* VISTA HU-11: CONFIRMAR TURNO (CLIENTE / MENSAJERÍA) */}
+      {/* ============================================================ */}
+      {activeTab === 'confirmar-turno' && (
+        <div className="card-surface rounded-2xl p-6 shadow-sm space-y-6 animate-in fade-in duration-200">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200 dark:border-[#3A3A48]">
+            <div>
+              <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+                <CheckCheck className="w-5 h-5 text-emerald-600" />
+                <span>HU-11: Confirmar Turno de Cliente</span>
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                Como cliente, quiero confirmar mi turno por mail o mensaje, para asegurar mi lugar en la sucursal.
+              </p>
+            </div>
+            <div className="flex items-center space-x-2">
+              <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-400 border border-amber-300 dark:border-amber-800">
+                Regla: Faltar ≥ 24 hs
+              </span>
+            </div>
+          </div>
+
+          {/* MENSAJES DE ESTADO */}
+          {confirmError && (
+            <div className="p-4 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 text-red-700 dark:text-red-400 text-xs flex items-start space-x-3 animate-in fade-in">
+              <AlertCircle className="w-5 h-5 shrink-0 mt-0.5 text-red-600" />
+              <div>
+                <p className="font-bold text-sm">{confirmError}</p>
+                <p className="text-[11px] mt-1 text-red-600/90 dark:text-red-400/90">
+                  El turno no puede confirmarse porque faltan menos de 24 hs para el horario programado. El turno permanece en estado "Solicitado".
+                </p>
+              </div>
+            </div>
+          )}
+
+          {confirmSuccess && (
+            <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 text-emerald-800 dark:text-emerald-300 text-xs flex items-start space-x-3 animate-in fade-in">
+              <CheckCircle2 className="w-5 h-5 shrink-0 mt-0.5 text-emerald-600" />
+              <div className="space-y-1">
+                <p className="font-bold text-sm">{confirmSuccess}</p>
+                <p className="text-[11px]">
+                  El turno pasó a estado <strong>"Confirmado"</strong> y se registró la confirmación con fecha, hora y medio.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* SELECTOR DE TURNO */}
+          <div className="space-y-4">
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+              1. Seleccione el Turno a Confirmar <span className="text-red-600 font-bold">*</span>
+            </label>
+
+            {turnos.length === 0 ? (
+              <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#1A1A22] border border-slate-200 dark:border-[#3A3A48] text-xs text-slate-500">
+                No hay turnos registrados aún. Registre uno en "HU-09: Registrar Solicitud de Turno".
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {turnos.map(t => {
+                  const isSelected = t.id === confirmTurnoId;
+                  const isConfirmado = t.estado === 'Confirmado';
+                  return (
+                    <div
+                      key={t.id}
+                      onClick={() => setConfirmTurnoId(t.id)}
+                      className={`p-3.5 rounded-xl border text-xs cursor-pointer transition-all ${
+                        isSelected
+                          ? 'border-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/20 ring-2 ring-emerald-500/20 shadow-sm'
+                          : 'border-slate-200 dark:border-[#3A3A48] bg-slate-50/50 dark:bg-[#1A1A22]/60 hover:border-slate-300 dark:hover:border-slate-600'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-[#2A2A38]">
+                        <span className="font-mono font-bold text-red-600">
+                          #{t.nroTurno}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          isConfirmado
+                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-400'
+                            : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-400'
+                        }`}>
+                          {t.estado}
+                        </span>
+                      </div>
+                      <div className="mt-2 space-y-1">
+                        <div className="font-bold text-slate-900 dark:text-white">
+                          {t.clienteNombre || 'Cliente'}
+                        </div>
+                        <div className="text-[11px] text-slate-500">
+                          Vehículo: <strong className="font-mono text-slate-700 dark:text-slate-300">{t.vehiculoDominio}</strong>
+                        </div>
+                        <div className="text-[11px] text-slate-500">
+                          Sucursal: <strong>{t.sucursal}</strong>
+                        </div>
+                        <div className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400 font-bold">
+                          {t.fecha} a las {t.hora} hs
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* FORMULARIO DE CONFIRMACIÓN */}
+          {confirmTurnoId && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-200 dark:border-[#3A3A48]">
+              {/* MEDIO DE CONTACTO */}
+              <div className="space-y-3">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                  2. Medio de Confirmación <span className="text-red-600 font-bold">*</span>
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setConfirmMedio('Mail')}
+                    className={`p-3 rounded-xl border flex items-center space-x-2.5 text-xs font-bold transition-all ${
+                      confirmMedio === 'Mail'
+                        ? 'border-red-600 bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 shadow-sm'
+                        : 'border-slate-200 dark:border-[#3A3A48] text-slate-600 dark:text-slate-400 hover:border-slate-300'
+                    }`}
+                  >
+                    <Mail className="w-4 h-4 text-red-600" />
+                    <span>Por Mail</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmMedio('Mensaje')}
+                    className={`p-3 rounded-xl border flex items-center space-x-2.5 text-xs font-bold transition-all ${
+                      confirmMedio === 'Mensaje'
+                        ? 'border-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 shadow-sm'
+                        : 'border-slate-200 dark:border-[#3A3A48] text-slate-600 dark:text-slate-400 hover:border-slate-300'
+                    }`}
+                  >
+                    <MessageSquare className="w-4 h-4 text-emerald-600" />
+                    <span>Por Mensaje (SMS/WA)</span>
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Se registrará el medio seleccionado y se emitirá la notificación al cliente.
+                </p>
+              </div>
+
+              {/* SIMULACIÓN FECHA / HORA ACTUAL (CRITERIO 24 HS) */}
+              <div className="space-y-3">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                  3. Fecha y Hora Actual (Simulación BDD)
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setConfirmFechaHoraActual('13/11/2026 10:00')}
+                    className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-100 hover:bg-emerald-200 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300 transition-colors"
+                  >
+                    ✓ 13/11/2026 10:00 (Dentro plazo)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmFechaHoraActual('14/11/2026 10:00')}
+                    className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-red-100 hover:bg-red-200 text-red-800 dark:bg-red-950/50 dark:text-red-300 transition-colors"
+                  >
+                    ✗ 14/11/2026 10:00 (Fuera plazo)
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={confirmFechaHoraActual}
+                  onChange={(e) => setConfirmFechaHoraActual(e.target.value)}
+                  placeholder="DD/MM/YYYY HH:mm"
+                  className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-[#3A3A48] bg-white dark:bg-[#1A1A22] text-slate-900 dark:text-white"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* BOTÓN DE ACCIÓN */}
+          <div className="pt-4 border-t border-slate-200 dark:border-[#3A3A48] flex flex-wrap items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={handleConfirmarTurno}
+              disabled={isConfirming || !confirmTurnoId}
+              className="px-6 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20 disabled:opacity-50 flex items-center space-x-2 transition-all"
+            >
+              <Send className="w-4 h-4" />
+              <span>{isConfirming ? 'Confirmando...' : 'Confirmar Turno'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('agenda')}
+              className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              Ver en Agenda
+            </button>
+          </div>
+
+          {/* DETALLES DE LA NOTIFICACIÓN EMITIDA */}
+          {confirmResult?.success && confirmResult.notificacion && (
+            <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#1A1A22] border border-emerald-200 dark:border-emerald-900/60 space-y-2 animate-in fade-in">
+              <div className="flex items-center space-x-2 text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Notificación Enviada al Cliente (Criterio 4)</span>
+              </div>
+              <div className="text-xs text-slate-700 dark:text-slate-300 font-mono bg-white dark:bg-[#121218] p-3 rounded-lg border border-slate-200 dark:border-[#2A2A38]">
+                <div><strong>Destinatario:</strong> {confirmResult.notificacion.destinatario} ({confirmResult.notificacion.medio})</div>
+                <div><strong>Fecha del Turno:</strong> {confirmResult.notificacion.fechaTurno}</div>
+                <div><strong>Hora del Turno:</strong> {confirmResult.notificacion.horaTurno} hs</div>
+                <div className="mt-1 text-slate-500 italic">"{confirmResult.notificacion.mensaje}"</div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ============================================================ */}
       {/* VISTA 2: AGENDA DE TURNOS REGISTRADOS */}
       {/* ============================================================ */}
       {activeTab === 'agenda' && (
@@ -984,20 +1268,49 @@ export const RecepcionScreen: React.FC = () => {
                         {t.motivoConsulta}
                       </td>
                       <td className="px-4 py-3">
-                        <span className="badge-yellow text-[10px] px-2 py-0.5 font-bold">
-                          {t.estado}
-                        </span>
+                        {t.estado === 'Confirmado' ? (
+                          <div className="space-y-1">
+                            <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                              <span>Confirmado</span>
+                            </span>
+                            {t.fechaConfirmacion && (
+                              <div className="text-[9px] text-slate-500 dark:text-slate-400 font-mono">
+                                {t.fechaConfirmacion} {t.horaConfirmacion} hs ({t.medioConfirmacion})
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="badge-yellow text-[10px] px-2 py-0.5 font-bold">
+                            {t.estado}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <button
-                          onClick={() => {
-                            selectVehicleForReception(t.vehiculoDominio);
-                            setActiveTab('presupuesto');
-                          }}
-                          className="px-2.5 py-1 bg-red-600/10 hover:bg-red-600/20 text-red-600 rounded-lg text-[10px] font-bold border border-red-600/20 transition-colors"
-                        >
-                          Generar Presupuesto
-                        </button>
+                        <div className="flex items-center justify-center space-x-1.5">
+                          {t.estado === 'Solicitado' && (
+                            <button
+                              onClick={() => {
+                                setConfirmTurnoId(t.id);
+                                setActiveTab('confirmar-turno');
+                              }}
+                              className="px-2.5 py-1 bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-600 dark:text-emerald-400 rounded-lg text-[10px] font-bold border border-emerald-600/20 transition-colors flex items-center space-x-1"
+                              title="Confirmar turno (HU-11)"
+                            >
+                              <CheckCheck className="w-3 h-3" />
+                              <span>Confirmar</span>
+                            </button>
+                          )}
+                          <button
+                            onClick={() => {
+                              selectVehicleForReception(t.vehiculoDominio);
+                              setActiveTab('presupuesto');
+                            }}
+                            className="px-2.5 py-1 bg-red-600/10 hover:bg-red-600/20 text-red-600 rounded-lg text-[10px] font-bold border border-red-600/20 transition-colors"
+                          >
+                            Generar Presupuesto
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

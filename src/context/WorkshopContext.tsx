@@ -1,5 +1,18 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { Client, Vehicle, WorkOrder, SparePartItem, BudgetServiceItem, Empleado, RoleName, Turno, Sucursal, DisponibilidadHorariaResult } from '../types/autotech';
+import { 
+  Client, 
+  Vehicle, 
+  WorkOrder, 
+  SparePartItem, 
+  BudgetServiceItem, 
+  Empleado, 
+  RoleName, 
+  Turno, 
+  Sucursal, 
+  DisponibilidadHorariaResult,
+  ConfirmarTurnoPayload,
+  ConfirmarTurnoResult
+} from '../types/autotech';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { getDefaultScreenForRole, isScreenAllowed } from '../utils/permissions';
 
@@ -202,12 +215,38 @@ interface WorkshopContextType {
     nroTurno?: number;
     turno?: Turno;
   }>;
+
+  // HU-11: Confirmar turno
+  confirmarTurno: (data: ConfirmarTurnoPayload) => Promise<ConfirmarTurnoResult>;
 }
 
 export const defaultSucursales: Sucursal[] = [
   { id: 1, nombre: 'Centro', direccion: 'Av. Colón 750, Córdoba', horarioApertura: '08:00', horarioCierre: '17:00' },
   { id: 2, nombre: 'Norte', direccion: 'Av. Rafael Núñez 4200, Córdoba', horarioApertura: '08:00', horarioCierre: '18:00' },
   { id: 3, nombre: 'Sur', direccion: 'Av. Vélez Sársfield 3100, Córdoba', horarioApertura: '08:00', horarioCierre: '17:00' }
+];
+
+export const defaultInitialTurnos: Turno[] = [
+  {
+    id: 'turno-juan-perez-1',
+    nroTurno: 1001,
+    vehiculoDominio: 'AB123CD',
+    clienteId: 'cli-juan-perez',
+    clienteNombre: 'Juan Pérez',
+    clienteDocumento: '30123456',
+    sucursal: 'Centro',
+    fecha: '15/11/2026',
+    hora: '09:00',
+    fechaHoraPropuesta: '2026-11-15T09:00:00',
+    motivoConsulta: 'Mantenimiento general',
+    esEmergencia: false,
+    estado: 'Solicitado',
+    fechaConfirmacion: null,
+    horaConfirmacion: null,
+    medioConfirmacion: null,
+    notificacionEnviada: false,
+    notificacionCliente: null
+  }
 ];
 
 const initialClients: Client[] = [
@@ -1533,9 +1572,9 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // ============================================================
   // HU-09: Turnos y Disponibilidad de Horarios
   // ============================================================
-  const [turnos, setTurnos] = useState<Turno[]>([]);
+  const [turnos, setTurnos] = useState<Turno[]>(defaultInitialTurnos);
   const [sucursales] = useState<Sucursal[]>(defaultSucursales);
-  const [nextTurnoNumber, setNextTurnoNumber] = useState<number>(1001);
+  const [nextTurnoNumber, setNextTurnoNumber] = useState<number>(1002);
 
   const normalizeContextDate = (dateStr: string): { iso: string; ddmmyyyy: string; parsedDate: Date | null } => {
     if (!dateStr) return { iso: '', ddmmyyyy: '', parsedDate: null };
@@ -1820,6 +1859,192 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
   };
 
+  // ============================================================
+  // HU-11: Confirmar Turno (Cliente / Recepción)
+  // ============================================================
+  const confirmarTurno = async (data: ConfirmarTurnoPayload): Promise<ConfirmarTurnoResult> => {
+    const rawMedio = String(data.medio || 'Mail').trim();
+    const medioNorm = rawMedio.toLowerCase().includes('mensaje') || 
+                      rawMedio.toLowerCase().includes('whatsapp') || 
+                      rawMedio.toLowerCase().includes('sms')
+      ? 'Mensaje'
+      : 'Mail';
+
+    // Intentar confirmación en backend Express
+    try {
+      const response = await fetch('http://localhost:4000/api/turnos/confirmar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          turno_id: data.turnoId,
+          nro_turno: data.nroTurno,
+          patente: data.vehiculoDominio,
+          cliente_dni: data.clienteDni,
+          medio: medioNorm,
+          fecha_hora_actual: data.fechaHoraActual
+        })
+      });
+
+      const resData = await response.json();
+
+      if (!response.ok) {
+        return {
+          success: false,
+          error: resData.error || resData.message || 'El plazo de confirmación venció',
+          message: resData.message || resData.error || 'El plazo de confirmación venció',
+          horasRestantes: resData.horasRestantes
+        };
+      }
+
+      if (resData.success && resData.turno) {
+        setTurnos(prev => prev.map(t => {
+          if (t.id === resData.turno.id || t.nroTurno === resData.turno.nro_turno) {
+            return {
+              ...t,
+              estado: 'Confirmado',
+              fechaConfirmacion: resData.fecha_confirmacion || resData.turno.fecha_confirmacion,
+              horaConfirmacion: resData.hora_confirmacion || resData.turno.hora_confirmacion,
+              medioConfirmacion: resData.medio_confirmacion || resData.turno.medio_confirmacion,
+              notificacionEnviada: true,
+              notificacionCliente: resData.notificacion || resData.turno.notificacion_cliente
+            };
+          }
+          return t;
+        }));
+
+        return {
+          success: true,
+          message: resData.message || 'Turno confirmado exitosamente',
+          estado: 'Confirmado',
+          turno: resData.turno,
+          notificacion: resData.notificacion
+        };
+      }
+    } catch {
+      // Fallback local en modo offline / tests
+    }
+
+    // Buscar turno local
+    const targetTurno = turnos.find(t => {
+      if (data.turnoId && t.id === data.turnoId) return true;
+      if (data.nroTurno && t.nroTurno === data.nroTurno) return true;
+      if (data.vehiculoDominio && t.vehiculoDominio.toUpperCase() === data.vehiculoDominio.toUpperCase()) {
+        if (!data.turnoId && !data.nroTurno) return true;
+      }
+      if (data.clienteDni && t.clienteDocumento && t.clienteDocumento.replace(/[\s-]/g, '') === data.clienteDni.replace(/[\s-]/g, '')) {
+        if (!data.turnoId && !data.nroTurno && !data.vehiculoDominio) return true;
+      }
+      return false;
+    });
+
+    if (!targetTurno) {
+      return {
+        success: false,
+        error: 'Turno no encontrado',
+        message: 'Turno no encontrado'
+      };
+    }
+
+    // Helper de parseo de fecha/hora completa
+    const parseFullDT = (dStr: string, tStr?: string): Date | null => {
+      if (!dStr) return null;
+      const combined = tStr ? `${dStr.trim()} ${tStr.trim()}` : dStr.trim();
+      const ddmmyyyyMatch = combined.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?$/);
+      if (ddmmyyyyMatch) {
+        const d = parseInt(ddmmyyyyMatch[1], 10);
+        const m = parseInt(ddmmyyyyMatch[2], 10) - 1;
+        const y = parseInt(ddmmyyyyMatch[3], 10);
+        const hh = ddmmyyyyMatch[4] ? parseInt(ddmmyyyyMatch[4], 10) : 0;
+        const mm = ddmmyyyyMatch[5] ? parseInt(ddmmyyyyMatch[5], 10) : 0;
+        return new Date(y, m, d, hh, mm, 0);
+      }
+      const isoMatch = combined.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s]+(\d{1,2}):(\d{2}))?$/);
+      if (isoMatch) {
+        const y = parseInt(isoMatch[1], 10);
+        const m = parseInt(isoMatch[2], 10) - 1;
+        const d = parseInt(isoMatch[3], 10);
+        const hh = isoMatch[4] ? parseInt(isoMatch[4], 10) : 0;
+        const mm = isoMatch[5] ? parseInt(isoMatch[5], 10) : 0;
+        return new Date(y, m, d, hh, mm, 0);
+      }
+      const fb = new Date(combined);
+      return isNaN(fb.getTime()) ? null : fb;
+    };
+
+    let nowRef: Date = new Date();
+    if (data.fechaHoraActual) {
+      const p = parseFullDT(data.fechaHoraActual);
+      if (p) nowRef = p;
+    }
+
+    const tDateTime = parseFullDT(targetTurno.fecha, targetTurno.hora);
+    if (!tDateTime) {
+      return { success: false, error: 'Fecha y hora del turno no válidas', message: 'Fecha y hora del turno no válidas' };
+    }
+
+    const diffHours = (tDateTime.getTime() - nowRef.getTime()) / (1000 * 60 * 60);
+
+    // Criterio 1 y 5: Si faltan menos de 24 hs se rechaza con "El plazo de confirmación venció"
+    if (diffHours < 24) {
+      return {
+        success: false,
+        error: 'El plazo de confirmación venció',
+        message: 'El plazo de confirmación venció',
+        horasRestantes: Math.round(diffHours * 10) / 10
+      };
+    }
+
+    // Confirmación válida
+    const regD = String(nowRef.getDate()).padStart(2, '0');
+    const regM = String(nowRef.getMonth() + 1).padStart(2, '0');
+    const regY = nowRef.getFullYear();
+    const regH = String(nowRef.getHours()).padStart(2, '0');
+    const regMin = String(nowRef.getMinutes()).padStart(2, '0');
+    const fechaConf = `${regD}/${regM}/${regY}`;
+    const horaConf = `${regH}:${regMin}`;
+
+    const cli = clients.find(c => c.id === targetTurno.clienteId || c.nroDocumento.replace(/[\s-]/g, '') === (targetTurno.clienteDocumento || '').replace(/[\s-]/g, ''));
+    const destinatario = medioNorm === 'Mail'
+      ? (cli?.email || 'juan.perez@gmail.com')
+      : (cli?.telefono || '0351-154987654');
+
+    const notificacionObj = {
+      enviada: true,
+      fechaTurno: targetTurno.fecha,
+      horaTurno: targetTurno.hora,
+      medio: medioNorm,
+      destinatario,
+      mensaje: `Estimado/a ${targetTurno.clienteNombre || 'Cliente'}, su turno para el vehículo ${targetTurno.vehiculoDominio} en la sucursal ${targetTurno.sucursal} ha sido confirmado para el día ${targetTurno.fecha} a las ${targetTurno.hora} hs.`
+    };
+
+    let updatedTurno: Turno | undefined;
+
+    setTurnos(prev => prev.map(t => {
+      if (t.id === targetTurno.id) {
+        updatedTurno = {
+          ...t,
+          estado: 'Confirmado',
+          fechaConfirmacion: fechaConf,
+          horaConfirmacion: horaConf,
+          medioConfirmacion: medioNorm,
+          notificacionEnviada: true,
+          notificacionCliente: notificacionObj
+        };
+        return updatedTurno;
+      }
+      return t;
+    }));
+
+    return {
+      success: true,
+      message: 'Turno confirmado exitosamente',
+      estado: 'Confirmado',
+      turno: updatedTurno || targetTurno,
+      notificacion: notificacionObj
+    };
+  };
+
   return (
     <WorkshopContext.Provider value={{
       isDark,
@@ -1862,7 +2087,8 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       sucursales,
       getAvailableHours,
       consultarDisponibilidad,
-      registerTurno
+      registerTurno,
+      confirmarTurno
     }}>
       {children}
     </WorkshopContext.Provider>

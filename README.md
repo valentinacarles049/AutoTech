@@ -240,13 +240,25 @@ El proyecto incluye el esquema SQL listo para inicializar la base de datos: [`au
   - **Criterio 3**: Si no hay horarios libres para la sucursal y fecha elegidas, se muestra el mensaje exacto: `"Sin disponibilidad para la fecha seleccionada"`.
   - **API Backend**: Endpoints `GET /api/turnos/disponibilidad?sucursal=...&fecha=...` y `GET /api/turnos/horarios-disponibles`.
   - **BDD Gherkin**: Especificación formal en `features/consultar_disponibilidad_horaria.feature` y suite de pruebas ejecutables en `test_bdd_consultar_disponibilidad.ts` (16 tests pasados con 100% de éxito).
+- **HU-11 Confirmar turno**:
+  - **Rol / Actor**: Cliente (confirmación por mail o mensaje) y Responsable de Recepción / Administrador en taller.
+  - **Pantalla**: Módulo *"Recepción"* (`/recepcion`), pestaña *"HU-11: Confirmar Turno"* y acciones directas en la *"Agenda de Turnos Registrados"*.
+  - **Criterio 1**: Sólo se confirma si faltan 24 hs o más para el turno.
+  - **Criterio 2**: El turno pasa de estado `"Solicitado"` a `"Confirmado"`.
+  - **Criterio 3**: Se registra la fecha, hora y medio de contacto de la confirmación (`fecha_confirmacion: "13/11/2026"`, `hora_confirmacion: "10:00"`, `medio_confirmacion: "Mail"` o `"Mensaje"`).
+  - **Criterio 4**: Al confirmarse se notifica al cliente la fecha y hora del turno (`notificacion_cliente: { enviada: true, fecha_turno: "15/11/2026", hora_turno: "09:00", ... }`).
+  - **Criterio 5**: Fuera de plazo se informa exactamente el mensaje: `"El plazo de confirmación venció"`. El turno permanece en estado `"Solicitado"` y no se registra la confirmación.
+  - **Base de Datos / Supabase**: Tabla `turnos` extendida con columnas `fecha_confirmacion`, `hora_confirmacion`, `medio_confirmacion` y `notificacion_enviada`, sincronizando el estado con `estado_turno_id = 3` (`Confirmado`).
+  - **API Backend**: Endpoints `POST /api/turnos/confirmar`, `POST /api/turnos/:id/confirmar` y `POST /api/turnos/public-confirm`.
+  - **BDD Gherkin**: Especificación formal en `features/confirmar_turno.feature` y suite de pruebas ejecutables en `test_bdd_confirmar_turno.ts` (24 tests pasados con 100% de éxito).
   - **Ejecución de Pruebas BDD**:
     ```bash
-    npm run test:bdd        # Ejecuta toda la suite BDD (HU-06 + HU-08 + HU-09 + HU-10: 91/91 tests)
+    npm run test:bdd        # Ejecuta toda la suite BDD completa (HU-06 + HU-08 + HU-09 + HU-10 + HU-11: 115/115 tests)
     npm run test:bdd:hu6    # Ejecuta la suite de HU-06 Modificar cliente (24/24 tests)
     npm run test:bdd:hu8    # Ejecuta la suite de HU-08 Modificar vehículo (21/21 tests)
     npm run test:bdd:hu9    # Ejecuta la suite de HU-09 Registrar solicitud de turno (30/30 tests)
     npm run test:bdd:hu10   # Ejecuta la suite de HU-10 Consultar disponibilidad horaria (16/16 tests)
+    npm run test:bdd:hu11   # Ejecuta la suite de HU-11 Confirmar turno (24/24 tests)
     ```
 
 

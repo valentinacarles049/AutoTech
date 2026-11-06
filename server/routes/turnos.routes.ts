@@ -5,6 +5,7 @@ import {
   listarHorariosDisponibles, 
   consultarDisponibilidadHoraria,
   listarSucursales,
+  confirmarTurno,
   testCleanupTurnos 
 } from '../controllers/turnos.controller';
 import { requireAuth, requireRole } from '../middleware/auth.middleware';
@@ -21,6 +22,11 @@ router.post(
 
 // Alternativa pública para fallback/testing
 router.post('/public-register', registrarTurno);
+
+// HU-11: Confirmar turno (Cliente confirma vía link de mail/mensaje o recepción)
+router.post('/confirmar', confirmarTurno);
+router.post('/:id/confirmar', confirmarTurno);
+router.post('/public-confirm', confirmarTurno);
 
 // Listado de turnos
 router.get('/', listarTurnos);

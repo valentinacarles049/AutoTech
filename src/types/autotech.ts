@@ -143,7 +143,7 @@ export interface DisponibilidadHorariaResult {
 }
 
 // ==========================================
-// 4. TURNO (UML MVP: fechaHoraPropuesta, motivoConsulta, esEmergencia - HU-09)
+// 4. TURNO (UML MVP: fechaHoraPropuesta, motivoConsulta, esEmergencia - HU-09 & HU-11)
 // ==========================================
 export interface Turno {
   id: string;
@@ -161,6 +161,45 @@ export interface Turno {
   estado: TurnoEstadoNombre;
   estadoTurnoId?: string; // Relación 1..1 con EstadoTurno
   presupuestoId?: string; // Relación 0..1 con Presupuesto
+  // HU-11: Confirmar turno
+  fechaConfirmacion?: string | null;
+  horaConfirmacion?: string | null;
+  medioConfirmacion?: 'Mail' | 'Mensaje' | string | null;
+  notificacionEnviada?: boolean;
+  notificacionCliente?: {
+    enviada: boolean;
+    fechaTurno: string;
+    horaTurno: string;
+    medio: string;
+    destinatario?: string;
+    mensaje: string;
+  } | null;
+}
+
+export interface ConfirmarTurnoPayload {
+  turnoId?: string;
+  nroTurno?: number;
+  vehiculoDominio?: string;
+  clienteDni?: string;
+  medio: 'Mail' | 'Mensaje' | string;
+  fechaHoraActual?: string;
+}
+
+export interface ConfirmarTurnoResult {
+  success: boolean;
+  message: string;
+  error?: string;
+  estado?: string;
+  turno?: Turno;
+  horasRestantes?: number;
+  notificacion?: {
+    enviada: boolean;
+    fechaTurno: string;
+    horaTurno: string;
+    medio: string;
+    destinatario?: string;
+    mensaje: string;
+  };
 }
 
 // ==========================================
