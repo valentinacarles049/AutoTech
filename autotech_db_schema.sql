@@ -388,6 +388,105 @@ GRANT EXECUTE ON FUNCTION registrar_cliente(VARCHAR, VARCHAR, VARCHAR, VARCHAR, 
 
 
 -- ============================================================
+-- PROCEDIMIENTO ALMACENADO: MODIFICAR CLIENTE (HU-06)
+-- Criterios de Aceptación:
+-- 1. No se puede modificar el tipo y número de documento a uno ya existente
+-- 2. Se validan los mismos campos obligatorios que en el alta
+-- 3. Mensaje de éxito: "Cliente modificado correctamente"
+-- ============================================================
+CREATE OR REPLACE FUNCTION modificar_cliente(
+  p_id UUID,
+  p_nombre VARCHAR,
+  p_apellido VARCHAR,
+  p_tipo_documento VARCHAR,
+  p_nro_documento VARCHAR,
+  p_email VARCHAR,
+  p_telefono VARCHAR,
+  p_razon_social VARCHAR DEFAULT NULL,
+  p_localidad VARCHAR DEFAULT NULL
+)
+RETURNS TABLE (
+  id UUID,
+  nro_cliente INT,
+  nombre VARCHAR,
+  apellido VARCHAR,
+  tipo_documento VARCHAR,
+  nro_documento VARCHAR,
+  razon_social VARCHAR,
+  email VARCHAR,
+  telefono VARCHAR,
+  localidad VARCHAR,
+  nivel_fidelizacion VARCHAR,
+  mensaje VARCHAR
+)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_clean_tipo VARCHAR;
+  v_clean_nro VARCHAR;
+  v_clean_email VARCHAR;
+BEGIN
+  v_clean_tipo := UPPER(TRIM(p_tipo_documento));
+  v_clean_nro := TRIM(p_nro_documento);
+  v_clean_email := LOWER(TRIM(p_email));
+
+  -- 1. Validar campos obligatorios
+  IF TRIM(p_nombre) = '' OR TRIM(p_apellido) = '' OR v_clean_tipo = '' OR v_clean_nro = '' OR v_clean_email = '' OR TRIM(p_telefono) = '' THEN
+    RAISE EXCEPTION 'Los campos nombre, apellido, tipo y número de documento, mail y teléfono son obligatorios';
+  END IF;
+
+  -- 2. Validar formato de email
+  IF v_clean_email !~ '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$' THEN
+    RAISE EXCEPTION 'El mail debe tener formato válido';
+  END IF;
+
+  -- 3. Validar duplicados en tipo y nro de documento para otros clientes (HU-06 CA 1)
+  IF EXISTS (
+    SELECT 1 FROM clientes 
+    WHERE clientes.id <> p_id 
+      AND UPPER(clientes.tipo_documento) = v_clean_tipo 
+      AND clientes.nro_documento = v_clean_nro
+  ) THEN
+    RAISE EXCEPTION 'Ya existe un cliente con ese tipo y número de documento';
+  END IF;
+
+  -- 4. Actualizar cliente
+  UPDATE clientes
+  SET 
+    nombre = TRIM(p_nombre),
+    apellido = TRIM(p_apellido),
+    tipo_documento = v_clean_tipo,
+    nro_documento = v_clean_nro,
+    razon_social = NULLIF(TRIM(p_razon_social), ''),
+    email = v_clean_email,
+    telefono = TRIM(p_telefono),
+    localidad = NULLIF(TRIM(p_localidad), '')
+  WHERE clientes.id = p_id;
+
+  RETURN QUERY
+  SELECT 
+    c.id,
+    c.nro_cliente,
+    c.nombre,
+    c.apellido,
+    c.tipo_documento,
+    c.nro_documento,
+    c.razon_social,
+    c.email,
+    c.telefono,
+    c.localidad,
+    c.nivel_fidelizacion,
+    'Cliente modificado correctamente'::VARCHAR AS mensaje
+  FROM clientes c
+  WHERE c.id = p_id;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION modificar_cliente(UUID, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR) TO anon, authenticated, postgres;
+
+
+
+-- ============================================================
 -- POLÍTICAS DE ACCESO (ROW LEVEL SECURITY - RLS)
 -- Permitir lectura y escritura para la aplicación cliente
 -- ============================================================
@@ -470,6 +569,10 @@ BEGIN
     INSERT INTO clientes (nombre, apellido, tipo_documento, nro_documento, razon_social, email, telefono, localidad, nivel_fidelizacion)
     VALUES ('Juan', 'Pérez', 'DNI', '30123456', NULL, 'juan.perez@gmail.com', '0351-154987654', 'Córdoba Capital', NULL)
     RETURNING id INTO cli_juan_id;
+
+    -- HU-06: Cliente María Gómez para verificación de duplicidad
+    INSERT INTO clientes (nombre, apellido, tipo_documento, nro_documento, razon_social, email, telefono, localidad, nivel_fidelizacion)
+    VALUES ('María', 'Gómez', 'DNI', '28999888', NULL, 'maria.gomez@gmail.com', '0351-156112233', 'Córdoba Capital', NULL);
 
     -- Insertar Vehículos asociados
     INSERT INTO vehiculos (dominio, cliente_id, marca, modelo, anio, kilometraje_actual)

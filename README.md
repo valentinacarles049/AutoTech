@@ -196,7 +196,16 @@ El proyecto incluye el esquema SQL listo para inicializar la base de datos: [`au
   - **Criterio 3**: Si no hay resultados se muestra el mensaje explícito **"No se encontraron clientes"** tanto en la tabla/grilla como en el panel de detalle de flota.
   - **Búsqueda por N° de cliente**: Permite buscar y acceder directamente por legajo/número de cliente correlativo.
   - **API Backend**: Endpoint `GET /api/clientes/buscar` soportando los query params `documento`, `apellido`, `nro_cliente`, `filtro` y búsqueda unificada `q`.
-- **HU-06 Registrar vehículo de cliente**:
+- **HU-06 Modificar cliente**:
+  - **Rol**: Responsable de Atención al Cliente (`carlos.atencion`) y Administrador del sistema.
+  - **Pantalla**: Módulo *"Comercial"* (`/comercial`), panel Detalle de Flota -> Botón *"Modificar Cliente"* / Modal *"Modificar Datos del Cliente"*.
+  - **Criterio 1**: No se puede modificar el tipo y número de documento a uno ya existente. Si ya pertenece a otro cliente registrado, el sistema muestra exactamente: *"Ya existe un cliente con ese tipo y número de documento"* y conserva los datos previos. El cliente puede conservar su propio documento sin conflicto de unicidad.
+  - **Criterio 2**: Se validan los mismos campos obligatorios que en el alta: `nombre`, `apellido`, `tipo_documento`, `numero_documento`, `mail` y `teléfono`. Se valida además el formato de correo electrónico y la opcionalidad de la razón social y localidad.
+  - **Mensaje de éxito**: Al presionar *"Guardar"* con datos válidos, el sistema muestra: *"Cliente modificado correctamente"* y actualiza la información en vivo.
+  - **Procedimiento PostgreSQL**: Función `modificar_cliente(p_id, p_nombre, p_apellido, p_tipo_documento, p_nro_documento, p_email, p_telefono, p_razon_social, p_localidad)`.
+  - **API Backend**: Endpoints `PUT /api/clientes/:id`, `PUT /api/clientes` (protegidos con `requireAuth` y `requireRole`).
+  - **BDD Gherkin**: Especificación formal en `features/modificar_cliente.feature` y suite de pruebas ejecutables en `test_bdd_modificar_cliente.ts` (24 tests pasados con 100% de éxito).
+- **HU-07 Registrar vehículo de cliente**:
   - **Rol**: Responsable de Atención al Cliente (`carlos.atencion`) y Administrador.
   - **Pantalla**: Módulo *"Comercial"* (`/comercial`), panel Detalle de Flota -> Modal *"Registrar Vehículo de Cliente"*.
   - **Criterio 1**: Campos obligatorios: patente, marca, modelo y año validados (`patente`, `marca`, `modelo`, `año`).
@@ -204,7 +213,6 @@ El proyecto incluye el esquema SQL listo para inicializar la base de datos: [`au
   - **Criterio 3**: El vehículo queda asociado al cliente seleccionado (`cliente_id = selectedClient.id`), incrementando el contador de flota del cliente y actualizando reactivamente la lista de vehículos registrados.
   - **Base de Datos**: Tabla `vehiculos` vinculada por FK a `clientes(id)` con `ON DELETE RESTRICT`.
   - **API Backend**: Endpoints `POST /api/vehiculos` (protegido con `requireRole`), `GET /api/vehiculos` y `GET /api/vehiculos/verificar-patente`.
-  - **BDD Gherkin**: Especificación formal en `features/registrar_vehiculo.feature` y suite de pruebas ejecutables en `test_bdd_registrar_vehiculo.ts` (16 tests pasados con 100% de éxito).
 - **HU-09 Registrar solicitud de turno**:
   - **Rol**: Responsable de Recepción (`valen.recepcion`) y Administrador.
   - **Pantalla**: Módulo *"Recepción"* (`/recepcion`), pestaña *"HU-09: Registrar Solicitud de Turno"*.
@@ -225,8 +233,10 @@ El proyecto incluye el esquema SQL listo para inicializar la base de datos: [`au
   - **BDD Gherkin**: Especificación formal en `features/consultar_disponibilidad_horaria.feature` y suite de pruebas ejecutables en `test_bdd_consultar_disponibilidad.ts` (16 tests pasados con 100% de éxito).
   - **Ejecución de Pruebas BDD**:
     ```bash
-    npm run test:bdd        # Ejecuta toda la suite BDD (HU-09 + HU-10: 46/46 tests)
-    npm run test:bdd:hu10   # Ejecuta exclusivamente la suite de HU-10 (16/16 tests)
+    npm run test:bdd        # Ejecuta toda la suite BDD (HU-06 + HU-09 + HU-10: 70/70 tests)
+    npm run test:bdd:hu6    # Ejecuta la suite de HU-06 Modificar cliente (24/24 tests)
+    npm run test:bdd:hu9    # Ejecuta la suite de HU-09 Registrar solicitud de turno (30/30 tests)
+    npm run test:bdd:hu10   # Ejecuta la suite de HU-10 Consultar disponibilidad horaria (16/16 tests)
     ```
 
 

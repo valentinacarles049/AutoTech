@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from 'react';
-import { Plus, Search, Car, User, Phone, FileText, Check, X, Filter, UserX, AlertCircle } from 'lucide-react';
+import { Plus, Search, Car, User, Phone, FileText, Check, X, Filter, UserX, AlertCircle, Edit2 } from 'lucide-react';
 import { useWorkshop } from '../context/WorkshopContext';
+import { Client } from '../types/autotech';
 
 export const ComercialScreen: React.FC = () => {
-  const { clients, selectedClientId, setSelectedClientId, addClient, vehicles, addVehicle, setCurrentScreen } = useWorkshop();
+  const { clients, selectedClientId, setSelectedClientId, addClient, updateClient, vehicles, addVehicle, setCurrentScreen } = useWorkshop();
   
   const [searchTerm, setSearchTerm] = useState('');
   const [searchCriterion, setSearchCriterion] = useState<'todos' | 'documento' | 'apellido' | 'nro_cliente'>('todos');
@@ -11,6 +12,20 @@ export const ComercialScreen: React.FC = () => {
   // Modal states
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
   const [isVehicleModalOpen, setIsVehicleModalOpen] = useState(false);
+
+  // HU-06: Modificar Cliente Modal state
+  const [isEditClientModalOpen, setIsEditClientModalOpen] = useState(false);
+  const [editNombre, setEditNombre] = useState('');
+  const [editApellido, setEditApellido] = useState('');
+  const [editTipoDoc, setEditTipoDoc] = useState<'DNI' | 'CUIT' | 'Pasaporte'>('DNI');
+  const [editNroDoc, setEditNroDoc] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editRazonSocial, setEditRazonSocial] = useState('');
+  const [editLocalidad, setEditLocalidad] = useState('');
+  const [editModalError, setEditModalError] = useState<string | null>(null);
+  const [editSuccessMsg, setEditSuccessMsg] = useState<string | null>(null);
+  const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
 
   // New Client Form state
   const [newClientName, setNewClientName] = useState('');
@@ -140,6 +155,52 @@ export const ComercialScreen: React.FC = () => {
     setNewClientPhone('');
     setNewClientEmail('');
     setIsClientModalOpen(false);
+  };
+
+  // HU-06: Abrir modal de Modificar Cliente
+  const handleOpenEditModal = (client: Client) => {
+    setEditNombre(client.nombre || client.name.split(' ')[0] || '');
+    setEditApellido(client.apellido || client.name.split(' ').slice(1).join(' ') || '');
+    setEditTipoDoc(client.tipoDocumento || (client.cuitDni?.length > 9 ? 'CUIT' : 'DNI'));
+    setEditNroDoc(client.nroDocumento || client.cuitDni || '');
+    setEditEmail(client.email || '');
+    setEditPhone(client.phone || client.telefono || '');
+    setEditRazonSocial(client.razonSocial || '');
+    setEditLocalidad(client.localidad || '');
+    setEditModalError(null);
+    setIsEditClientModalOpen(true);
+  };
+
+  // HU-06: Guardar modificación de datos de cliente
+  const handleUpdateClient = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedClient) return;
+    setEditModalError(null);
+    setIsSubmittingEdit(true);
+
+    const res = await updateClient(selectedClient.id, {
+      nombre: editNombre,
+      apellido: editApellido,
+      tipoDocumento: editTipoDoc,
+      nroDocumento: editNroDoc,
+      cuitDni: editNroDoc,
+      email: editEmail,
+      phone: editPhone,
+      telefono: editPhone,
+      razonSocial: editRazonSocial || undefined,
+      localidad: editLocalidad || undefined
+    });
+
+    setIsSubmittingEdit(false);
+
+    if (!res.success) {
+      setEditModalError(res.error || 'Error al modificar el cliente');
+      return;
+    }
+
+    setIsEditClientModalOpen(false);
+    setEditSuccessMsg('Cliente modificado correctamente');
+    setTimeout(() => setEditSuccessMsg(null), 6000);
   };
 
   // Handler para HU-06: Registrar Vehículo de Cliente
@@ -440,20 +501,52 @@ export const ComercialScreen: React.FC = () => {
             </div>
 
             {selectedClient && (
-              <button
-                id="btn-open-asociar-vehiculo"
-                data-testid="btn-open-asociar-vehiculo"
-                onClick={() => {
-                  setVehicleModalError(null);
-                  setIsVehicleModalOpen(true);
-                }}
-                className="px-3 py-1.5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-100 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all shadow-sm cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>+ Asociar Vehículo</span>
-              </button>
+              <div className="flex items-center space-x-2">
+                <button
+                  id="btn-modificar-cliente"
+                  data-testid="btn-modificar-cliente"
+                  onClick={() => handleOpenEditModal(selectedClient)}
+                  className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all shadow-sm shadow-red-600/20 cursor-pointer active:scale-95"
+                  title="Modificar datos del cliente (HU-06)"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                  <span>Modificar Cliente</span>
+                </button>
+                <button
+                  id="btn-open-asociar-vehiculo"
+                  data-testid="btn-open-asociar-vehiculo"
+                  onClick={() => {
+                    setVehicleModalError(null);
+                    setIsVehicleModalOpen(true);
+                  }}
+                  className="px-3 py-1.5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-100 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all shadow-sm cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Asociar Vehículo</span>
+                </button>
+              </div>
             )}
           </div>
+
+          {/* Notificación de éxito al modificar cliente (HU-06) */}
+          {editSuccessMsg && (
+            <div 
+              id="edit-client-success-alert" 
+              data-testid="edit-client-success-alert"
+              className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-xs flex items-center justify-between animate-in fade-in"
+            >
+              <div className="flex items-center space-x-2">
+                <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span className="font-semibold">{editSuccessMsg}</span>
+              </div>
+              <button 
+                onClick={() => setEditSuccessMsg(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
 
           {/* Notificación de éxito al asociar vehículo */}
           {vehicleSuccessMsg && (
@@ -507,16 +600,27 @@ export const ComercialScreen: React.FC = () => {
                   <span className="text-[10px] text-slate-400 block uppercase font-bold">
                     {selectedClient.tipoDocumento || 'CUIT / DNI'}
                   </span>
-                  <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{selectedClient.cuitDni}</span>
+                  <span className="font-mono font-semibold text-slate-800 dark:text-slate-200" id="selected-client-doc" data-testid="selected-client-doc">{selectedClient.cuitDni}</span>
                 </div>
                 <div>
                   <span className="text-[10px] text-slate-400 block uppercase font-bold">Teléfono</span>
-                  <span className="font-semibold text-slate-800 dark:text-slate-200">{selectedClient.phone}</span>
+                  <span className="font-semibold text-slate-800 dark:text-slate-200" id="selected-client-phone" data-testid="selected-client-phone">{selectedClient.phone}</span>
                 </div>
                 {selectedClient.email && (
-                  <div className="col-span-2 pt-1 border-t border-slate-200/50 dark:border-[#3A3A48]/50">
-                    <span className="text-[10px] text-slate-400 block uppercase font-bold">Email de Contacto</span>
-                    <span className="text-slate-800 dark:text-slate-200">{selectedClient.email}</span>
+                  <div className="col-span-2 pt-2 border-t border-slate-200/50 dark:border-[#3A3A48]/50 flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] text-slate-400 block uppercase font-bold">Email de Contacto</span>
+                      <span className="text-slate-800 dark:text-slate-200 font-medium" id="selected-client-email" data-testid="selected-client-email">{selectedClient.email}</span>
+                    </div>
+                    <button
+                      id="btn-edit-contact"
+                      data-testid="btn-edit-contact"
+                      onClick={() => handleOpenEditModal(selectedClient)}
+                      className="text-xs font-bold text-red-600 hover:text-red-700 flex items-center space-x-1"
+                    >
+                      <Edit2 className="w-3 h-3" />
+                      <span>Editar</span>
+                    </button>
                   </div>
                 )}
               </div>
@@ -853,6 +957,208 @@ export const ComercialScreen: React.FC = () => {
                 >
                   <Check className="w-4 h-4" />
                   <span>Guardar Vehículo</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: MODIFICAR CLIENTE (HU-06) */}
+      {isEditClientModalOpen && selectedClient && (
+        <div 
+          id="modal-modificar-cliente"
+          data-testid="modal-modificar-cliente"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in"
+        >
+          <div className="card-surface w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 dark:border-[#3A3A48] overflow-hidden">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-200 dark:border-[#3A3A48] flex items-center justify-between">
+              <div>
+                <span className="text-[10px] uppercase font-bold text-red-600 dark:text-red-400 tracking-wider block">
+                  HU-06 • Modificar Cliente
+                </span>
+                <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center space-x-2">
+                  <span>Modificar Datos del Cliente</span>
+                  <span className="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                    #{selectedClient.nroCliente || '---'}
+                  </span>
+                </h3>
+              </div>
+              <button
+                type="button"
+                id="btn-close-edit-modal"
+                data-testid="btn-close-edit-modal"
+                onClick={() => {
+                  setEditModalError(null);
+                  setIsEditClientModalOpen(false);
+                }}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body / Form */}
+            <form onSubmit={handleUpdateClient} className="p-5 space-y-4">
+              {/* Alerta de Error */}
+              {editModalError && (
+                <div 
+                  id="edit-client-error"
+                  data-testid="edit-client-error"
+                  className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-700 dark:text-red-300 text-xs flex items-start space-x-2 animate-in fade-in"
+                >
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span className="font-semibold leading-relaxed">{editModalError}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                {/* Nombre * */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Nombre <span className="text-red-600">*</span>
+                  </label>
+                  <input
+                    id="edit-client-nombre"
+                    data-testid="edit-client-nombre"
+                    type="text"
+                    required
+                    value={editNombre}
+                    onChange={(e) => setEditNombre(e.target.value)}
+                    placeholder="ej: Juan"
+                    className="app-input w-full px-3 py-2 text-xs"
+                  />
+                </div>
+
+                {/* Apellido * */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Apellido <span className="text-red-600">*</span>
+                  </label>
+                  <input
+                    id="edit-client-apellido"
+                    data-testid="edit-client-apellido"
+                    type="text"
+                    required
+                    value={editApellido}
+                    onChange={(e) => setEditApellido(e.target.value)}
+                    placeholder="ej: Pérez"
+                    className="app-input w-full px-3 py-2 text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                {/* Tipo Documento * */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Tipo Doc <span className="text-red-600">*</span>
+                  </label>
+                  <select
+                    id="edit-client-tipo-doc"
+                    data-testid="edit-client-tipo-doc"
+                    value={editTipoDoc}
+                    onChange={(e) => setEditTipoDoc(e.target.value as any)}
+                    className="app-input w-full px-3 py-2 text-xs font-bold"
+                  >
+                    <option value="DNI">DNI</option>
+                    <option value="CUIT">CUIT</option>
+                    <option value="Pasaporte">Pasaporte</option>
+                  </select>
+                </div>
+
+                {/* Número Documento * */}
+                <div className="col-span-2">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Número de Documento <span className="text-red-600">*</span>
+                  </label>
+                  <input
+                    id="edit-client-nro-doc"
+                    data-testid="edit-client-nro-doc"
+                    type="text"
+                    required
+                    value={editNroDoc}
+                    onChange={(e) => setEditNroDoc(e.target.value)}
+                    placeholder="ej: 30123456"
+                    className="app-input w-full px-3 py-2 text-xs font-mono"
+                  />
+                </div>
+              </div>
+
+              {/* Email * */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Correo Electrónico (Mail) <span className="text-red-600">*</span>
+                </label>
+                <input
+                  id="edit-client-email"
+                  data-testid="edit-client-email"
+                  type="email"
+                  required
+                  value={editEmail}
+                  onChange={(e) => setEditEmail(e.target.value)}
+                  placeholder="ej: jperez@example.com"
+                  className="app-input w-full px-3 py-2 text-xs"
+                />
+              </div>
+
+              {/* Teléfono * */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Teléfono de Contacto <span className="text-red-600">*</span>
+                </label>
+                <input
+                  id="edit-client-phone"
+                  data-testid="edit-client-phone"
+                  type="tel"
+                  required
+                  value={editPhone}
+                  onChange={(e) => setEditPhone(e.target.value)}
+                  placeholder="ej: 3515001122"
+                  className="app-input w-full px-3 py-2 text-xs"
+                />
+              </div>
+
+              {/* Razón Social (Opcional) */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Razón Social <span className="text-slate-400 font-normal">(Opcional para empresas)</span>
+                </label>
+                <input
+                  id="edit-client-razon-social"
+                  data-testid="edit-client-razon-social"
+                  type="text"
+                  value={editRazonSocial}
+                  onChange={(e) => setEditRazonSocial(e.target.value)}
+                  placeholder="ej: Logística Pérez S.R.L."
+                  className="app-input w-full px-3 py-2 text-xs"
+                />
+              </div>
+
+              {/* Botones de acción: Botón 'Guardar' */}
+              <div className="pt-4 border-t border-slate-200 dark:border-[#3A3A48] flex items-center justify-end space-x-3">
+                <button
+                  type="button"
+                  id="btn-cancelar-edit-cliente"
+                  data-testid="btn-cancelar-edit-cliente"
+                  onClick={() => {
+                    setEditModalError(null);
+                    setIsEditClientModalOpen(false);
+                  }}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-[#3A3A48] bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  id="btn-guardar-edit-cliente"
+                  data-testid="btn-guardar-edit-cliente"
+                  disabled={isSubmittingEdit}
+                  className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-md shadow-red-600/30 transition-all active:scale-95 flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>Guardar</span>
                 </button>
               </div>
             </form>

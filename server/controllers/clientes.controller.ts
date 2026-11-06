@@ -419,5 +419,229 @@ export const eliminarClienteTest = async (req: Request, res: Response): Promise<
   res.json({ success: true, removed: idx !== -1 });
 };
 
+/**
+ * HU-06: Modificar Cliente
+ * 
+ * Criterios de Aceptación:
+ * 1. No se puede modificar el tipo y número de documento a uno ya existente
+ * 2. Se validan los mismos campos obligatorios que en el alta:
+ *    - nombre, apellido, tipo y número de documento, mail y teléfono
+ *    - El mail debe tener formato válido
+ * 3. Mensaje de confirmación: "Cliente modificado correctamente"
+ */
+export const modificarCliente = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const targetParam = (req.params.id || req.params.nroDocumento || req.body.id || '').toString().trim();
+    const originalDoc = (req.body.nro_documento_original || req.body.documento_original || req.query.documento_original || req.query.documento || '').toString().trim();
+
+    const {
+      nombre,
+      apellido,
+      tipo_documento,
+      tipoDocumento,
+      numero_documento,
+      nro_documento,
+      nroDocumento,
+      mail,
+      email,
+      telefono,
+      phone,
+      razon_social,
+      razonSocial,
+      localidad
+    } = req.body;
+
+    const valNombre = (nombre || '').toString().trim();
+    const valApellido = (apellido || '').toString().trim();
+    const valTipoDoc = (tipo_documento || tipoDocumento || '').toString().trim().toUpperCase();
+    const valNroDoc = (numero_documento || nro_documento || nroDocumento || '').toString().trim();
+    const valEmail = (mail || email || '').toString().trim().toLowerCase();
+    const valTelefono = (telefono || phone || '').toString().trim();
+    const valRazonSocial = (razon_social || razonSocial || '').toString().trim();
+    const valLocalidad = (localidad || '').toString().trim();
+
+    // Criterio 2: Se validan los mismos campos obligatorios que en el alta
+    if (!valNombre || !valApellido || !valTipoDoc || !valNroDoc || !valEmail || !valTelefono) {
+      res.status(400).json({
+        error: 'Los campos nombre, apellido, tipo y número de documento, mail y teléfono son obligatorios'
+      });
+      return;
+    }
+
+    // Criterio 2: El mail debe tener formato válido
+    if (!EMAIL_REGEX.test(valEmail)) {
+      res.status(400).json({
+        error: 'El mail debe tener formato válido'
+      });
+      return;
+    }
+
+    // Encontrar cliente objetivo en memoria local
+    let clientIndex = -1;
+    if (targetParam) {
+      clientIndex = localClientsSeed.findIndex(c => 
+        c.id === targetParam || 
+        String(c.nro_cliente) === targetParam ||
+        c.nro_documento === targetParam
+      );
+    }
+    if (clientIndex === -1 && originalDoc) {
+      clientIndex = localClientsSeed.findIndex(c => c.nro_documento === originalDoc);
+    }
+    if (clientIndex === -1 && valNroDoc) {
+      clientIndex = localClientsSeed.findIndex(c => c.nro_documento === valNroDoc);
+    }
+
+    let currentClient = clientIndex !== -1 ? localClientsSeed[clientIndex] : null;
+
+    // Buscar en Supabase si no está en memoria local
+    let dbClient: any = null;
+    if (!currentClient && isSupabaseConnected && supabase) {
+      try {
+        const query = supabase.from('clientes').select('*');
+        if (targetParam) {
+          query.or(`id.eq.${targetParam},nro_documento.eq.${targetParam}`);
+        } else if (originalDoc) {
+          query.eq('nro_documento', originalDoc);
+        } else if (valNroDoc) {
+          query.eq('nro_documento', valNroDoc);
+        }
+        const { data } = await query.maybeSingle();
+        if (data) {
+          dbClient = data;
+        }
+      } catch (err) {
+        console.warn('[Backend Clientes] Error buscando cliente en Supabase:', err);
+      }
+    }
+
+    if (!currentClient && !dbClient) {
+      res.status(404).json({ error: 'Cliente no encontrado' });
+      return;
+    }
+
+    const currentId = currentClient?.id || dbClient?.id;
+
+    // Criterio 1: No se puede modificar el tipo y número de documento a uno ya existente
+    const duplicateLocal = localClientsSeed.find(c => 
+      c.id !== currentId &&
+      c.tipo_documento.toUpperCase() === valTipoDoc &&
+      c.nro_documento === valNroDoc
+    );
+
+    if (duplicateLocal) {
+      res.status(409).json({
+        error: 'Ya existe un cliente con ese tipo y número de documento'
+      });
+      return;
+    }
+
+    if (isSupabaseConnected && supabase) {
+      try {
+        const { data: duplicateDb } = await supabase
+          .from('clientes')
+          .select('id, tipo_documento, nro_documento')
+          .ilike('tipo_documento', valTipoDoc)
+          .eq('nro_documento', valNroDoc)
+          .neq('id', currentId)
+          .maybeSingle();
+
+        if (duplicateDb) {
+          res.status(409).json({
+            error: 'Ya existe un cliente con ese tipo y número de documento'
+          });
+          return;
+        }
+      } catch (err) {
+        console.warn('[Backend Clientes] Error comprobando duplicados en Supabase:', err);
+      }
+    }
+
+    // Actualizar en memoria local
+    if (clientIndex !== -1) {
+      localClientsSeed[clientIndex] = {
+        ...localClientsSeed[clientIndex],
+        nombre: valNombre,
+        apellido: valApellido,
+        tipo_documento: valTipoDoc as 'DNI' | 'CUIT' | 'Pasaporte',
+        nro_documento: valNroDoc,
+        email: valEmail,
+        telefono: valTelefono,
+        razon_social: valRazonSocial || null,
+        localidad: valLocalidad || null
+      };
+      currentClient = localClientsSeed[clientIndex];
+    } else {
+      currentClient = {
+        id: currentId,
+        nro_cliente: dbClient?.nro_cliente || 1005,
+        nombre: valNombre,
+        apellido: valApellido,
+        tipo_documento: valTipoDoc as 'DNI' | 'CUIT' | 'Pasaporte',
+        nro_documento: valNroDoc,
+        email: valEmail,
+        telefono: valTelefono,
+        razon_social: valRazonSocial || null,
+        localidad: valLocalidad || null,
+        nivel_fidelizacion: dbClient?.nivel_fidelizacion || null,
+        fecha_alta: dbClient?.fecha_alta || new Date().toISOString().split('T')[0],
+        estado: 'Activo'
+      };
+      localClientsSeed.push(currentClient);
+    }
+
+    // Actualizar en Supabase
+    if (isSupabaseConnected && supabase) {
+      try {
+        await supabase
+          .from('clientes')
+          .update({
+            nombre: valNombre,
+            apellido: valApellido,
+            tipo_documento: valTipoDoc,
+            nro_documento: valNroDoc,
+            razon_social: valRazonSocial || null,
+            email: valEmail,
+            telefono: valTelefono,
+            localidad: valLocalidad || null
+          })
+          .eq('id', currentId);
+      } catch (err) {
+        console.warn('[Backend Clientes] Error actualizando en Supabase:', err);
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Cliente modificado correctamente',
+      cliente: currentClient
+    });
+  } catch (error: any) {
+    console.error('[Backend Clientes] Error al modificar cliente:', error);
+    res.status(500).json({
+      error: 'Error interno al modificar el cliente',
+      details: error.message
+    });
+  }
+};
+
+/**
+ * Restaurar cliente para idempotencia de pruebas
+ */
+export const restaurarClienteTest = async (req: Request, res: Response): Promise<void> => {
+  const { nro_documento, email, telefono, nombre, apellido, tipo_documento } = req.body;
+  const targetDoc = nro_documento || '30123456';
+
+  const client = localClientsSeed.find(c => c.nro_documento === targetDoc);
+  if (client) {
+    if (email) client.email = email;
+    if (telefono) client.telefono = telefono;
+    if (nombre) client.nombre = nombre;
+    if (apellido) client.apellido = apellido;
+    if (tipo_documento) client.tipo_documento = tipo_documento;
+  }
+  res.json({ success: true, cliente: client });
+};
+
 
 

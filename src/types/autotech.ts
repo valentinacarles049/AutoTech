@@ -32,6 +32,27 @@ export interface Client {
 
 export type Cliente = Client;
 
+// HU-06: Modificar Cliente
+export interface UpdateClientPayload {
+  nombre?: string;
+  apellido?: string;
+  tipoDocumento?: 'DNI' | 'CUIT' | 'Pasaporte';
+  nroDocumento?: string;
+  cuitDni?: string;
+  email?: string;
+  phone?: string;
+  telefono?: string;
+  razonSocial?: string;
+  localidad?: string;
+}
+
+export interface UpdateClientResult {
+  success: boolean;
+  error?: string;
+  message?: string;
+  client?: Client;
+}
+
 // ==========================================
 // 2. VEHÍCULO (UML MVP: dominio, marca, modelo, año, kilometrajeActual)
 // ==========================================

@@ -121,6 +121,18 @@ interface WorkshopContextType {
   selectedClientId: string;
   setSelectedClientId: (id: string) => void;
   addClient: (client: Omit<Client, 'id' | 'vehicleCount' | 'status'>) => Promise<{ success: boolean; error?: string; message?: string; client?: Client }>;
+  updateClient: (id: string, updatedData: {
+    nombre?: string;
+    apellido?: string;
+    tipoDocumento?: 'DNI' | 'CUIT' | 'Pasaporte';
+    nroDocumento?: string;
+    cuitDni?: string;
+    email?: string;
+    phone?: string;
+    telefono?: string;
+    razonSocial?: string;
+    localidad?: string;
+  }) => Promise<{ success: boolean; error?: string; message?: string; client?: Client }>;
   vehicles: Vehicle[];
   addVehicle: (vehicle: {
     plate: string;
@@ -301,6 +313,23 @@ const initialClients: Client[] = [
     localidad: 'Córdoba Capital',
     nivelFidelizacion: null,
     vehicleCount: 1,
+    status: 'Activo'
+  },
+  {
+    id: 'cli-maria-gomez',
+    nroCliente: 1008,
+    nombre: 'María',
+    apellido: 'Gómez',
+    name: 'María Gómez',
+    tipoDocumento: 'DNI',
+    nroDocumento: '28999888',
+    cuitDni: '28999888',
+    email: 'maria.gomez@gmail.com',
+    phone: '0351-156112233',
+    telefono: '0351-156112233',
+    localidad: 'Córdoba Capital',
+    nivelFidelizacion: null,
+    vehicleCount: 0,
     status: 'Activo'
   },
 ];
@@ -977,6 +1006,150 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
   };
 
+  // HU-06: Modificar Cliente
+  const updateClient = async (
+    id: string,
+    updatedData: {
+      nombre?: string;
+      apellido?: string;
+      tipoDocumento?: 'DNI' | 'CUIT' | 'Pasaporte';
+      nroDocumento?: string;
+      cuitDni?: string;
+      email?: string;
+      phone?: string;
+      telefono?: string;
+      razonSocial?: string;
+      localidad?: string;
+    }
+  ): Promise<{ success: boolean; error?: string; message?: string; client?: Client }> => {
+    // 1. Encontrar cliente existente
+    const current = clients.find(c => c.id === id || c.nroDocumento === id || c.cuitDni === id);
+    if (!current) {
+      return {
+        success: false,
+        error: 'Cliente no encontrado'
+      };
+    }
+
+    const valNombre = (updatedData.nombre !== undefined ? updatedData.nombre : current.nombre).trim();
+    const valApellido = (updatedData.apellido !== undefined ? updatedData.apellido : current.apellido).trim();
+    const valTipoDoc = (updatedData.tipoDocumento || current.tipoDocumento || 'DNI').trim().toUpperCase() as 'DNI' | 'CUIT' | 'Pasaporte';
+    const valNroDoc = (updatedData.nroDocumento || updatedData.cuitDni || current.nroDocumento || current.cuitDni || '').trim();
+    const valEmail = (updatedData.email || current.email || '').trim().toLowerCase();
+    const valPhone = (updatedData.phone || updatedData.telefono || current.phone || current.telefono || '').trim();
+    const valRazonSocial = (updatedData.razonSocial !== undefined ? updatedData.razonSocial : current.razonSocial || '').trim();
+    const valLocalidad = (updatedData.localidad !== undefined ? updatedData.localidad : current.localidad || '').trim();
+
+    // Criterio 2: Se validan los mismos campos obligatorios que en el alta
+    if (!valNombre || !valApellido || !valTipoDoc || !valNroDoc || !valEmail || !valPhone) {
+      return {
+        success: false,
+        error: 'Los campos nombre, apellido, tipo y número de documento, mail y teléfono son obligatorios'
+      };
+    }
+
+    // Criterio 2: El mail debe tener formato válido
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(valEmail)) {
+      return {
+        success: false,
+        error: 'El mail debe tener formato válido'
+      };
+    }
+
+    // Criterio 1: No se puede modificar el tipo y número de documento a uno ya existente
+    const duplicate = clients.find(c => 
+      c.id !== current.id &&
+      (c.tipoDocumento || 'DNI').toUpperCase() === valTipoDoc &&
+      (c.nroDocumento === valNroDoc || c.cuitDni === valNroDoc)
+    );
+
+    if (duplicate) {
+      return {
+        success: false,
+        error: 'Ya existe un cliente con ese tipo y número de documento'
+      };
+    }
+
+    // Actualizar en backend Node/Express
+    try {
+      const response = await fetch(`http://localhost:4000/api/clientes/${encodeURIComponent(current.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          id: current.id,
+          nombre: valNombre,
+          apellido: valApellido,
+          tipo_documento: valTipoDoc,
+          numero_documento: valNroDoc,
+          nro_documento: valNroDoc,
+          mail: valEmail,
+          email: valEmail,
+          telefono: valPhone,
+          phone: valPhone,
+          razon_social: valRazonSocial || null,
+          localidad: valLocalidad || null
+        })
+      });
+
+      const resData = await response.json();
+      if (!response.ok) {
+        return {
+          success: false,
+          error: resData.error || 'Error al modificar el cliente'
+        };
+      }
+    } catch {
+      // Fallback offline / memoria local
+    }
+
+    // Actualizar estado en memoria reactivo
+    const updatedClient: Client = {
+      ...current,
+      nombre: valNombre,
+      apellido: valApellido,
+      name: valRazonSocial ? `${valNombre} ${valApellido} (${valRazonSocial})` : `${valNombre} ${valApellido}`,
+      tipoDocumento: valTipoDoc,
+      nroDocumento: valNroDoc,
+      cuitDni: valNroDoc,
+      email: valEmail,
+      phone: valPhone,
+      telefono: valPhone,
+      razonSocial: valRazonSocial || undefined,
+      localidad: valLocalidad || undefined
+    };
+
+    setClients(prev => prev.map(c => c.id === current.id ? updatedClient : c));
+
+    // Si Supabase está configurado, actualizar
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase
+          .from('clientes')
+          .update({
+            nombre: valNombre,
+            apellido: valApellido,
+            tipo_documento: valTipoDoc,
+            nro_documento: valNroDoc,
+            razon_social: valRazonSocial || null,
+            email: valEmail,
+            telefono: valPhone,
+            localidad: valLocalidad || null
+          })
+          .eq('id', current.id);
+      } catch (e) {
+        console.error('Error actualizando cliente en Supabase:', e);
+      }
+    }
+
+    return {
+      success: true,
+      message: 'Cliente modificado correctamente',
+      client: updatedClient
+    };
+  };
+
   // HU-06: Registrar Vehículo de Cliente
   const addVehicle = async (newVeh: {
     plate: string;
@@ -1525,6 +1698,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       selectedClientId,
       setSelectedClientId,
       addClient,
+      updateClient,
       vehicles,
       addVehicle,
       workOrders,
