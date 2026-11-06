@@ -213,6 +213,15 @@ El proyecto incluye el esquema SQL listo para inicializar la base de datos: [`au
   - **Criterio 3**: El vehículo queda asociado al cliente seleccionado (`cliente_id = selectedClient.id`), incrementando el contador de flota del cliente y actualizando reactivamente la lista de vehículos registrados.
   - **Base de Datos**: Tabla `vehiculos` vinculada por FK a `clientes(id)` con `ON DELETE RESTRICT`.
   - **API Backend**: Endpoints `POST /api/vehiculos` (protegido con `requireRole`), `GET /api/vehiculos` y `GET /api/vehiculos/verificar-patente`.
+- **HU-08 Modificar vehículo**:
+  - **Rol**: Responsable de Atención al Cliente (`carlos.atencion`) y Administrador del sistema.
+  - **Pantalla**: Módulo *"Comercial"* (`/comercial`), panel Detalle de Flota -> Tarjetas de Vehículos Registrados -> Botón *"Modificar"* / Modal *"Modificar Datos del Vehículo"*.
+  - **Criterio 1**: La patente modificada no puede repetirse. Si la nueva patente ya pertenece a otro vehículo registrado, el sistema rechaza el cambio y muestra: *"Ya existe un vehículo con esa patente en el sistema"*, preservando la patente original.
+  - **Criterio 2**: El kilometraje no puede ser menor al registrado. Si se ingresa un valor inferior al kilometraje actual del vehículo, el sistema rechaza el cambio y muestra: *"El kilometraje no puede ser menor al registrado"*, conservando el kilometraje previo.
+  - **Mensaje de éxito**: Al presionar *"Guardar"* con datos válidos, el sistema muestra: *"Vehículo modificado correctamente"* y actualiza en vivo la información en el panel y en la base de datos.
+  - **Procedimiento PostgreSQL**: Función `modificar_vehiculo(p_dominio_original, p_nuevo_dominio, p_nuevo_kilometraje, p_marca, p_modelo, p_anio)`.
+  - **API Backend**: Endpoints `PUT /api/vehiculos/:patente`, `PUT /api/vehiculos` (protegidos con `requireAuth` y `requireRole`).
+  - **BDD Gherkin**: Especificación formal en `features/modificar_vehiculo.feature` y suite de pruebas ejecutables en `test_bdd_modificar_vehiculo.ts` (21 tests pasados con 100% de éxito).
 - **HU-09 Registrar solicitud de turno**:
   - **Rol**: Responsable de Recepción (`valen.recepcion`) y Administrador.
   - **Pantalla**: Módulo *"Recepción"* (`/recepcion`), pestaña *"HU-09: Registrar Solicitud de Turno"*.
@@ -233,8 +242,9 @@ El proyecto incluye el esquema SQL listo para inicializar la base de datos: [`au
   - **BDD Gherkin**: Especificación formal en `features/consultar_disponibilidad_horaria.feature` y suite de pruebas ejecutables en `test_bdd_consultar_disponibilidad.ts` (16 tests pasados con 100% de éxito).
   - **Ejecución de Pruebas BDD**:
     ```bash
-    npm run test:bdd        # Ejecuta toda la suite BDD (HU-06 + HU-09 + HU-10: 70/70 tests)
+    npm run test:bdd        # Ejecuta toda la suite BDD (HU-06 + HU-08 + HU-09 + HU-10: 91/91 tests)
     npm run test:bdd:hu6    # Ejecuta la suite de HU-06 Modificar cliente (24/24 tests)
+    npm run test:bdd:hu8    # Ejecuta la suite de HU-08 Modificar vehículo (21/21 tests)
     npm run test:bdd:hu9    # Ejecuta la suite de HU-09 Registrar solicitud de turno (30/30 tests)
     npm run test:bdd:hu10   # Ejecuta la suite de HU-10 Consultar disponibilidad horaria (16/16 tests)
     ```

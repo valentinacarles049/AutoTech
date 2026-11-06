@@ -1,10 +1,10 @@
 import React, { useState, useMemo } from 'react';
-import { Plus, Search, Car, User, Phone, FileText, Check, X, Filter, UserX, AlertCircle, Edit2 } from 'lucide-react';
+import { Plus, Search, Car, User, Phone, FileText, Check, X, Filter, UserX, AlertCircle, Edit2, Wrench } from 'lucide-react';
 import { useWorkshop } from '../context/WorkshopContext';
-import { Client } from '../types/autotech';
+import { Client, Vehicle } from '../types/autotech';
 
 export const ComercialScreen: React.FC = () => {
-  const { clients, selectedClientId, setSelectedClientId, addClient, updateClient, vehicles, addVehicle, setCurrentScreen } = useWorkshop();
+  const { clients, selectedClientId, setSelectedClientId, addClient, updateClient, vehicles, addVehicle, updateVehicle, setCurrentScreen } = useWorkshop();
   
   const [searchTerm, setSearchTerm] = useState('');
   const [searchCriterion, setSearchCriterion] = useState<'todos' | 'documento' | 'apellido' | 'nro_cliente'>('todos');
@@ -26,6 +26,18 @@ export const ComercialScreen: React.FC = () => {
   const [editModalError, setEditModalError] = useState<string | null>(null);
   const [editSuccessMsg, setEditSuccessMsg] = useState<string | null>(null);
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
+
+  // HU-08: Modificar Vehículo Modal state
+  const [isEditVehicleModalOpen, setIsEditVehicleModalOpen] = useState(false);
+  const [selectedEditVehicle, setSelectedEditVehicle] = useState<Vehicle | null>(null);
+  const [editVehPlate, setEditVehPlate] = useState('');
+  const [editVehMileage, setEditVehMileage] = useState<number>(0);
+  const [editVehBrand, setEditVehBrand] = useState('');
+  const [editVehModel, setEditVehModel] = useState('');
+  const [editVehYear, setEditVehYear] = useState<number>(new Date().getFullYear());
+  const [editVehicleError, setEditVehicleError] = useState<string | null>(null);
+  const [editVehicleSuccessMsg, setEditVehicleSuccessMsg] = useState<string | null>(null);
+  const [isSubmittingEditVehicle, setIsSubmittingEditVehicle] = useState(false);
 
   // New Client Form state
   const [newClientName, setNewClientName] = useState('');
@@ -203,7 +215,48 @@ export const ComercialScreen: React.FC = () => {
     setTimeout(() => setEditSuccessMsg(null), 6000);
   };
 
-  // Handler para HU-06: Registrar Vehículo de Cliente
+  // HU-08: Abrir modal de Modificar Vehículo
+  const handleOpenEditVehicleModal = (veh: Vehicle) => {
+    setSelectedEditVehicle(veh);
+    setEditVehPlate(veh.plate);
+    setEditVehMileage(veh.mileage);
+    setEditVehBrand(veh.marca || (veh.brandModel ? veh.brandModel.split(' ')[0] : ''));
+    setEditVehModel(veh.modelo || (veh.brandModel ? veh.brandModel.split(' ').slice(1).join(' ') : ''));
+    setEditVehYear(veh.year);
+    setEditVehicleError(null);
+    setIsEditVehicleModalOpen(true);
+  };
+
+  // HU-08: Guardar modificación de datos de vehículo
+  const handleUpdateVehicle = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedEditVehicle) return;
+    setEditVehicleError(null);
+    setIsSubmittingEditVehicle(true);
+
+    const res = await updateVehicle(selectedEditVehicle.plate, {
+      plate: editVehPlate,
+      dominio: editVehPlate,
+      mileage: Number(editVehMileage),
+      kilometraje: Number(editVehMileage),
+      marca: editVehBrand,
+      modelo: editVehModel,
+      year: Number(editVehYear)
+    });
+
+    setIsSubmittingEditVehicle(false);
+
+    if (!res.success) {
+      setEditVehicleError(res.error || 'Error al modificar el vehículo');
+      return;
+    }
+
+    setIsEditVehicleModalOpen(false);
+    setEditVehicleSuccessMsg('Vehículo modificado correctamente');
+    setTimeout(() => setEditVehicleSuccessMsg(null), 6000);
+  };
+
+  // Handler para HU-07: Registrar Vehículo de Cliente
   const handleSaveVehicle = async (e: React.FormEvent) => {
     e.preventDefault();
     setVehicleModalError(null);
@@ -548,6 +601,26 @@ export const ComercialScreen: React.FC = () => {
             </div>
           )}
 
+          {/* Notificación de éxito al modificar vehículo (HU-08) */}
+          {editVehicleSuccessMsg && (
+            <div 
+              id="edit-vehicle-success-alert" 
+              data-testid="edit-vehicle-success-alert"
+              className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-xs flex items-center justify-between animate-in fade-in"
+            >
+              <div className="flex items-center space-x-2">
+                <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span className="font-semibold">{editVehicleSuccessMsg}</span>
+              </div>
+              <button 
+                onClick={() => setEditVehicleSuccessMsg(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
           {/* Notificación de éxito al asociar vehículo */}
           {vehicleSuccessMsg && (
             <div 
@@ -649,18 +722,34 @@ export const ComercialScreen: React.FC = () => {
                   className="p-3.5 rounded-xl border border-slate-200 dark:border-[#3A3A48] bg-white dark:bg-[#202028] hover:border-red-600/40 transition-all space-y-2"
                 >
                   <div className="flex items-center justify-between">
-                    <span className="px-2.5 py-1 rounded-md bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 font-mono font-bold text-xs tracking-wider shadow-sm">
+                    <span 
+                      id={`veh-plate-${veh.plate}`}
+                      data-testid={`veh-plate-${veh.plate}`}
+                      className="px-2.5 py-1 rounded-md bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 font-mono font-bold text-xs tracking-wider shadow-sm"
+                    >
                       {veh.plate}
                     </span>
-                    <span className={
-                      veh.status === 'Aprobado' || veh.status === 'Activo' 
-                        ? 'badge-green' 
-                        : veh.status === 'En taller' 
-                        ? 'badge-yellow' 
-                        : 'badge-gray'
-                    }>
-                      {veh.status}
-                    </span>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        id={`btn-modificar-vehiculo-${veh.plate}`}
+                        data-testid={`btn-modificar-vehiculo-${veh.plate}`}
+                        onClick={() => handleOpenEditVehicleModal(veh)}
+                        className="px-2 py-0.5 rounded-lg text-[11px] font-bold text-red-600 hover:text-white hover:bg-red-600 border border-red-600/30 transition-all flex items-center space-x-1 cursor-pointer"
+                        title="Modificar datos del vehículo (HU-08)"
+                      >
+                        <Edit2 className="w-3 h-3" />
+                        <span>Modificar</span>
+                      </button>
+                      <span className={
+                        veh.status === 'Aprobado' || veh.status === 'Activo' 
+                          ? 'badge-green' 
+                          : veh.status === 'En taller' 
+                          ? 'badge-yellow' 
+                          : 'badge-gray'
+                      }>
+                        {veh.status}
+                      </span>
+                    </div>
                   </div>
 
                   <div>
@@ -668,7 +757,7 @@ export const ComercialScreen: React.FC = () => {
                       {veh.brandModel}
                     </h4>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
-                      Año {veh.year} • {veh.mileage.toLocaleString()} km
+                      Año {veh.year} • <span id={`veh-mileage-${veh.plate}`} data-testid={`veh-mileage-${veh.plate}`} className="font-bold text-slate-800 dark:text-slate-200">{veh.mileage.toLocaleString()} km</span>
                     </p>
                   </div>
 
@@ -1155,6 +1244,184 @@ export const ComercialScreen: React.FC = () => {
                   id="btn-guardar-edit-cliente"
                   data-testid="btn-guardar-edit-cliente"
                   disabled={isSubmittingEdit}
+                  className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-md shadow-red-600/30 transition-all active:scale-95 flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>Guardar</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: MODIFICAR VEHÍCULO (HU-08) */}
+      {isEditVehicleModalOpen && selectedEditVehicle && (
+        <div 
+          id="modal-modificar-vehiculo"
+          data-testid="modal-modificar-vehiculo"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in"
+        >
+          <div className="card-surface w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 dark:border-[#3A3A48] overflow-hidden">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-200 dark:border-[#3A3A48] flex items-center justify-between">
+              <div>
+                <span className="text-[10px] uppercase font-bold text-red-600 dark:text-red-400 tracking-wider block">
+                  HU-08 • Modificar Vehículo
+                </span>
+                <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center space-x-2">
+                  <span>Modificar Datos del Vehículo</span>
+                  <span className="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900">
+                    {selectedEditVehicle.plate}
+                  </span>
+                </h3>
+              </div>
+              <button
+                type="button"
+                id="btn-close-edit-vehicle-modal"
+                data-testid="btn-close-edit-vehicle-modal"
+                onClick={() => {
+                  setEditVehicleError(null);
+                  setIsEditVehicleModalOpen(false);
+                }}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body / Form */}
+            <form onSubmit={handleUpdateVehicle} className="p-5 space-y-4">
+              {/* Alerta de Error */}
+              {editVehicleError && (
+                <div 
+                  id="edit-vehicle-error"
+                  data-testid="edit-vehicle-error"
+                  className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-700 dark:text-red-300 text-xs flex items-start space-x-2 animate-in fade-in"
+                >
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span className="font-semibold leading-relaxed">{editVehicleError}</span>
+                </div>
+              )}
+
+              {/* Patente y Kilometraje */}
+              <div className="grid grid-cols-2 gap-3">
+                {/* Patente * */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Patente (Dominio) <span className="text-red-600">*</span>
+                  </label>
+                  <input
+                    id="edit-vehicle-plate"
+                    data-testid="edit-vehicle-plate"
+                    type="text"
+                    required
+                    value={editVehPlate}
+                    onChange={(e) => setEditVehPlate(e.target.value.toUpperCase())}
+                    placeholder="ej: AB123CD"
+                    className="app-input w-full px-3 py-2 text-xs font-mono uppercase"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    No puede repetirse con otro vehículo
+                  </p>
+                </div>
+
+                {/* Kilometraje * */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Kilometraje Actual (km) <span className="text-red-600">*</span>
+                  </label>
+                  <input
+                    id="edit-vehicle-mileage"
+                    data-testid="edit-vehicle-mileage"
+                    type="number"
+                    required
+                    min={0}
+                    value={editVehMileage}
+                    onChange={(e) => setEditVehMileage(Number(e.target.value))}
+                    placeholder="ej: 52000"
+                    className="app-input w-full px-3 py-2 text-xs font-mono"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Registrado: {selectedEditVehicle.mileage.toLocaleString()} km
+                  </p>
+                </div>
+              </div>
+
+              {/* Marca y Modelo */}
+              <div className="grid grid-cols-2 gap-3">
+                {/* Marca * */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Marca <span className="text-red-600">*</span>
+                  </label>
+                  <input
+                    id="edit-vehicle-brand"
+                    data-testid="edit-vehicle-brand"
+                    type="text"
+                    required
+                    value={editVehBrand}
+                    onChange={(e) => setEditVehBrand(e.target.value)}
+                    placeholder="ej: Toyota"
+                    className="app-input w-full px-3 py-2 text-xs"
+                  />
+                </div>
+
+                {/* Modelo * */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Modelo <span className="text-red-600">*</span>
+                  </label>
+                  <input
+                    id="edit-vehicle-model"
+                    data-testid="edit-vehicle-model"
+                    type="text"
+                    required
+                    value={editVehModel}
+                    onChange={(e) => setEditVehModel(e.target.value)}
+                    placeholder="ej: Corolla 2.0 SEG"
+                    className="app-input w-full px-3 py-2 text-xs"
+                  />
+                </div>
+              </div>
+
+              {/* Año */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Año de Fabricación <span className="text-red-600">*</span>
+                </label>
+                <input
+                  id="edit-vehicle-year"
+                  data-testid="edit-vehicle-year"
+                  type="number"
+                  required
+                  min={1920}
+                  max={new Date().getFullYear() + 1}
+                  value={editVehYear}
+                  onChange={(e) => setEditVehYear(Number(e.target.value))}
+                  className="app-input w-full px-3 py-2 text-xs font-mono"
+                />
+              </div>
+
+              {/* Botones de acción: Botón 'Guardar' */}
+              <div className="pt-4 border-t border-slate-200 dark:border-[#3A3A48] flex items-center justify-end space-x-3">
+                <button
+                  type="button"
+                  id="btn-cancelar-edit-vehiculo"
+                  data-testid="btn-cancelar-edit-vehiculo"
+                  onClick={() => {
+                    setEditVehicleError(null);
+                    setIsEditVehicleModalOpen(false);
+                  }}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-[#3A3A48] bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  id="btn-guardar-edit-vehiculo"
+                  data-testid="btn-guardar-edit-vehiculo"
+                  disabled={isSubmittingEditVehicle}
                   className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-md shadow-red-600/30 transition-all active:scale-95 flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
                 >
                   <Check className="w-4 h-4" />

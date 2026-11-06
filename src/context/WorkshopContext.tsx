@@ -144,6 +144,18 @@ interface WorkshopContextType {
     mileage?: number;
     vin?: string;
   }) => Promise<{ success: boolean; error?: string; message?: string; vehicle?: Vehicle }>;
+  updateVehicle: (plate: string, updatedData: {
+    plate?: string;
+    dominio?: string;
+    mileage?: number;
+    kilometraje?: number;
+    kilometrajeActual?: number;
+    marca?: string;
+    modelo?: string;
+    brandModel?: string;
+    year?: number;
+    año?: number;
+  }) => Promise<{ success: boolean; error?: string; message?: string; vehicle?: Vehicle }>;
 
   // Operativa (Work Orders & Mechanic MVP)
   workOrders: WorkOrder[];
@@ -1284,6 +1296,131 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
   };
 
+  // HU-08: Modificar Vehículo
+  const updateVehicle = async (
+    plate: string,
+    updatedData: {
+      plate?: string;
+      dominio?: string;
+      mileage?: number;
+      kilometraje?: number;
+      kilometrajeActual?: number;
+      marca?: string;
+      modelo?: string;
+      brandModel?: string;
+      year?: number;
+      año?: number;
+    }
+  ): Promise<{ success: boolean; error?: string; message?: string; vehicle?: Vehicle }> => {
+    const cleanOrigPlate = plate.trim().toUpperCase();
+    const current = vehicles.find(v => v.plate.toUpperCase() === cleanOrigPlate || v.dominio?.toUpperCase() === cleanOrigPlate);
+    if (!current) {
+      return { success: false, error: 'Vehículo no encontrado' };
+    }
+
+    const currentKm = current.mileage ?? current.kilometrajeActual ?? 0;
+    const newKm = Number(updatedData.kilometraje ?? updatedData.mileage ?? updatedData.kilometrajeActual ?? currentKm);
+
+    // Criterio 2: El kilometraje no puede ser menor al registrado
+    if (isNaN(newKm) || newKm < 0) {
+      return { success: false, error: 'El kilometraje ingresado es inválido' };
+    }
+    if (newKm < currentKm) {
+      return {
+        success: false,
+        error: 'El kilometraje no puede ser menor al registrado'
+      };
+    }
+
+    const targetPlate = String(updatedData.plate || updatedData.dominio || cleanOrigPlate).trim().toUpperCase();
+
+    // Criterio 1: La patente modificada no puede repetirse
+    if (targetPlate !== cleanOrigPlate) {
+      const duplicate = vehicles.find(v => 
+        (v.plate.toUpperCase() === targetPlate || v.dominio?.toUpperCase() === targetPlate) &&
+        v.plate.toUpperCase() !== cleanOrigPlate
+      );
+      if (duplicate) {
+        return {
+          success: false,
+          error: 'Ya existe un vehículo con esa patente en el sistema'
+        };
+      }
+    }
+
+    // Actualizar en backend Node/Express
+    try {
+      const response = await fetch(`http://localhost:4000/api/vehiculos/${encodeURIComponent(cleanOrigPlate)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          patente_original: cleanOrigPlate,
+          patente: targetPlate,
+          dominio: targetPlate,
+          kilometraje_actual: newKm,
+          mileage: newKm,
+          marca: updatedData.marca,
+          modelo: updatedData.modelo,
+          año: updatedData.year || updatedData.año
+        })
+      });
+
+      const resData = await response.json();
+      if (!response.ok) {
+        return {
+          success: false,
+          error: resData.error || 'Error al modificar el vehículo'
+        };
+      }
+    } catch {
+      // Offline fallback
+    }
+
+    const newBrand = updatedData.marca || current.marca || (current.brandModel ? current.brandModel.split(' ')[0] : 'Auto');
+    const newModel = updatedData.modelo || current.modelo || (current.brandModel ? current.brandModel.split(' ').slice(1).join(' ') : 'Tech');
+    const newYear = Number(updatedData.year || updatedData.año || current.year || current.año || new Date().getFullYear());
+
+    const updatedVehicle: Vehicle = {
+      ...current,
+      plate: targetPlate,
+      dominio: targetPlate,
+      mileage: newKm,
+      kilometrajeActual: newKm,
+      marca: newBrand,
+      modelo: newModel,
+      brandModel: `${newBrand} ${newModel}`.trim(),
+      year: newYear,
+      año: newYear
+    };
+
+    setVehicles(prev => prev.map(v => v.plate.toUpperCase() === cleanOrigPlate ? updatedVehicle : v));
+
+    // Si Supabase está configurado, actualizar
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase
+          .from('vehiculos')
+          .update({
+            dominio: targetPlate,
+            kilometraje_actual: newKm,
+            marca: newBrand,
+            modelo: newModel,
+            anio: newYear
+          })
+          .eq('dominio', cleanOrigPlate);
+      } catch (err) {
+        console.warn('Error actualizando vehículo en Supabase:', err);
+      }
+    }
+
+    return {
+      success: true,
+      message: 'Vehículo modificado correctamente',
+      vehicle: updatedVehicle
+    };
+  };
+
   // Work Orders state
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>(initialWorkOrders);
 
@@ -1701,6 +1838,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       updateClient,
       vehicles,
       addVehicle,
+      updateVehicle,
       workOrders,
       updateOrderHours,
       deductPartFromPañol,

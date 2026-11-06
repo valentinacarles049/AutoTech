@@ -485,6 +485,89 @@ $$;
 GRANT EXECUTE ON FUNCTION modificar_cliente(UUID, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR) TO anon, authenticated, postgres;
 
 
+-- ============================================================
+-- PROCEDIMIENTO ALMACENADO: MODIFICAR VEHÍCULO (HU-08)
+-- Criterios de Aceptación:
+-- 1. La patente modificada no puede repetirse
+-- 2. El kilometraje no puede ser menor al registrado
+-- 3. Mensaje de confirmación: "Vehículo modificado correctamente"
+-- ============================================================
+CREATE OR REPLACE FUNCTION modificar_vehiculo(
+  p_dominio_original VARCHAR,
+  p_nuevo_dominio VARCHAR,
+  p_nuevo_kilometraje INT,
+  p_marca VARCHAR DEFAULT NULL,
+  p_modelo VARCHAR DEFAULT NULL,
+  p_anio INT DEFAULT NULL
+)
+RETURNS TABLE (
+  dominio VARCHAR,
+  cliente_id UUID,
+  marca VARCHAR,
+  modelo VARCHAR,
+  anio INT,
+  kilometraje_actual INT,
+  mensaje VARCHAR
+)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_clean_orig VARCHAR;
+  v_clean_nuevo VARCHAR;
+  v_current_km INT;
+BEGIN
+  v_clean_orig := UPPER(TRIM(p_dominio_original));
+  v_clean_nuevo := UPPER(TRIM(p_nuevo_dominio));
+
+  -- 1. Obtener kilometraje actual
+  SELECT v.kilometraje_actual INTO v_current_km 
+  FROM vehiculos v 
+  WHERE UPPER(v.dominio) = v_clean_orig;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Vehículo no encontrado';
+  END IF;
+
+  -- 2. Criterio 2: El kilometraje no puede ser menor al registrado
+  IF p_nuevo_kilometraje < v_current_km THEN
+    RAISE EXCEPTION 'El kilometraje no puede ser menor al registrado';
+  END IF;
+
+  -- 3. Criterio 1: La patente modificada no puede repetirse
+  IF v_clean_nuevo <> v_clean_orig AND EXISTS (
+    SELECT 1 FROM vehiculos WHERE UPPER(vehiculos.dominio) = v_clean_nuevo
+  ) THEN
+    RAISE EXCEPTION 'Ya existe un vehículo con esa patente en el sistema';
+  END IF;
+
+  -- 4. Actualizar
+  UPDATE vehiculos
+  SET 
+    dominio = v_clean_nuevo,
+    kilometraje_actual = p_nuevo_kilometraje,
+    marca = COALESCE(NULLIF(TRIM(p_marca), ''), vehiculos.marca),
+    modelo = COALESCE(NULLIF(TRIM(p_modelo), ''), vehiculos.modelo),
+    anio = COALESCE(p_anio, vehiculos.anio)
+  WHERE UPPER(vehiculos.dominio) = v_clean_orig;
+
+  RETURN QUERY
+  SELECT 
+    v.dominio,
+    v.cliente_id,
+    v.marca,
+    v.modelo,
+    v.anio,
+    v.kilometraje_actual,
+    'Vehículo modificado correctamente'::VARCHAR AS mensaje
+  FROM vehiculos v
+  WHERE UPPER(v.dominio) = v_clean_nuevo;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION modificar_vehiculo(VARCHAR, VARCHAR, INT, VARCHAR, VARCHAR, INT) TO anon, authenticated, postgres;
+
+
+
 
 -- ============================================================
 -- POLÍTICAS DE ACCESO (ROW LEVEL SECURITY - RLS)

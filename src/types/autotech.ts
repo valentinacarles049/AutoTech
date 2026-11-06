@@ -76,6 +76,29 @@ export interface Vehicle {
 
 export type Vehiculo = Vehicle;
 
+// HU-08: Modificar Vehículo
+export interface UpdateVehiclePayload {
+  patenteOriginal?: string;
+  plate?: string;
+  dominio?: string;
+  mileage?: number;
+  kilometraje?: number;
+  kilometrajeActual?: number;
+  marca?: string;
+  modelo?: string;
+  brandModel?: string;
+  year?: number;
+  año?: number;
+  anio?: number;
+}
+
+export interface UpdateVehicleResult {
+  success: boolean;
+  error?: string;
+  message?: string;
+  vehicle?: Vehicle;
+}
+
 // ==========================================
 // 3. ESTADO TURNO (UML MVP: descripcionEstado - HU-09: 'Solicitado')
 // ==========================================
