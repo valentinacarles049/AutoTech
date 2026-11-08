@@ -265,7 +265,7 @@ export interface LocalTurno {
   fecha: string; // formato "DD/MM/YYYY" o "YYYY-MM-DD"
   hora: string;  // formato "HH:mm"
   motivo_consulta: string;
-  estado: 'Solicitado' | 'Pendiente de Confirmación (24hs)' | 'Confirmado' | 'En Taller' | 'Cancelado' | 'Finalizado' | 'Ausente';
+  estado: 'Solicitado' | 'Pendiente de Confirmación (24hs)' | 'Confirmado' | 'Reprogramado' | 'En Taller' | 'Cancelado' | 'Finalizado' | 'Ausente';
   es_emergencia?: boolean;
   created_at?: string;
   // HU-11: Confirmar turno
@@ -281,6 +281,15 @@ export interface LocalTurno {
     mensaje: string;
     destinatario?: string;
   } | null;
+  // HU-12: Cancelar turno
+  motivo_cancelacion?: string | null;
+  fecha_cancelacion?: string | null;
+  hora_cancelacion?: string | null;
+  cancelado_por?: string | null;
+  // HU-13: Modificar turno
+  historial_estados?: string[];
+  fecha_modificacion?: string | null;
+  hora_modificacion?: string | null;
   // HU-15: Finalizar turno (registrar presentación del vehículo)
   presupuesto_habilitado?: boolean;
   vehiculo_presentado?: boolean;

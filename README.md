@@ -251,14 +251,38 @@ El proyecto incluye el esquema SQL listo para inicializar la base de datos: [`au
   - **Base de Datos / Supabase**: Tabla `turnos` extendida con columnas `fecha_confirmacion`, `hora_confirmacion`, `medio_confirmacion` y `notificacion_enviada`, sincronizando el estado con `estado_turno_id = 3` (`Confirmado`).
   - **API Backend**: Endpoints `POST /api/turnos/confirmar`, `POST /api/turnos/:id/confirmar` y `POST /api/turnos/public-confirm`.
   - **BDD Gherkin**: Especificación formal en `features/confirmar_turno.feature` y suite de pruebas ejecutables en `test_bdd_confirmar_turno.ts` (24 tests pasados con 100% de éxito).
+- **HU-12 Cancelar turno**:
+  - **Rol / Actor**: Cliente o Responsable de Recepción (`valen.recepcion`) / Administrador del sistema.
+  - **Pantalla**: Módulo *"Recepción"* (`/recepcion`), tabla de turnos -> Botón *"Cancelar"* -> Modal *"Cancelar Turno"*.
+  - **Criterio 1**: Sólo se cancelan turnos en estado `"Solicitado"` o `"Confirmado"`. Turnos en otros estados (o ya cancelados) son rechazados.
+  - **Criterio 2**: El motivo es obligatorio. Si se deja vacío o contiene sólo espacios en blanco, el sistema muestra exactamente: `"El motivo de cancelación es obligatorio"` y el turno sigue en estado `"Solicitado"` (o `"Confirmado"`).
+  - **Criterio 3**: El turno pasa a estado `"Cancelado"`, se registra el motivo de cancelación (`motivo_cancelacion`), fecha y hora de cancelación, y el horario vuelve a estar inmediatamente disponible (desocupando el slot en `consultarDisponibilidadHoraria` y permitiendo nuevas reservas).
+  - **Base de Datos / Supabase**: Tabla `turnos` con columnas `motivo_cancelacion`, `fecha_cancelacion`, `hora_cancelacion`, `cancelado_por` y sincronización con `estado_turno_id = 5` (`Cancelado`).
+  - **API Backend**: Endpoints `POST /api/turnos/cancelar`, `POST /api/turnos/:id/cancelar` y `POST /api/turnos/public-cancel`.
+  - **BDD Gherkin**: Especificación formal en `features/cancelar_turno.feature` y suite de pruebas ejecutables en `test_bdd_cancelar_turno.ts` (25 tests pasados con 100% de éxito).
+- **HU-13 Modificar turno**:
+  - **Rol / Actor**: Responsable de Recepción (`valen.recepcion`) / Administrador del sistema.
+  - **Pantalla**: Módulo *"Recepción"* (`/recepcion`), tabla de turnos -> Botón *"Modificar"* -> Modal *"Modificar Turno"*.
+  - **Criterio 1**: Sólo se modifican turnos en estado `"Solicitado"` o `"Confirmado"`. Turnos en otros estados (Cancelado, Finalizado, etc.) son rechazados con el mensaje correspondiente.
+  - **Criterio 2**: El nuevo horario debe estar disponible en la sucursal seleccionada. Si ya se encuentra ocupado por otro turno activo, el sistema rechaza la operación con el mensaje: `"El horario seleccionado no está disponible. Seleccione otro horario"` y el turno conserva inalterado su horario y estado original.
+  - **Criterio 3**: Si el turno estaba Confirmado pasa a `"Reprogramado"` hasta reasignarle fecha y horario, y vuelve a `"Confirmado"`. El historial de transiciones de estados queda registrado en el turno (`historial_estados`: `['Confirmado', 'Reprogramado', 'Confirmado']`).
+  - **Criterio 4 / Liberación**: El horario y fecha anterior del turno vuelve a estar inmediatamente disponible para nuevas reservas.
+  - **Base de Datos / Supabase**: Tabla `turnos` con columnas `historial_estados` (TEXT[]), `fecha_modificacion`, `hora_modificacion` y actualización de `fecha`, `hora` y `sucursal`.
+  - **API Backend**: Endpoints `PUT /api/turnos/modificar`, `POST /api/turnos/modificar`, `PUT /api/turnos/:id`, `POST /api/turnos/:id/modificar` y `POST /api/turnos/public-modify`.
+  - **BDD Gherkin**: Especificación formal en `features/modificar_turno.feature` y suite de pruebas ejecutables en `test_bdd_modificar_turno.ts` (28 tests pasados con 100% de éxito).
   - **Ejecución de Pruebas BDD**:
     ```bash
-    npm run test:bdd        # Ejecuta toda la suite BDD completa (HU-06 + HU-08 + HU-09 + HU-10 + HU-11: 115/115 tests)
-    npm run test:bdd:hu6    # Ejecuta la suite de HU-06 Modificar cliente (24/24 tests)
-    npm run test:bdd:hu8    # Ejecuta la suite de HU-08 Modificar vehículo (21/21 tests)
-    npm run test:bdd:hu9    # Ejecuta la suite de HU-09 Registrar solicitud de turno (30/30 tests)
-    npm run test:bdd:hu10   # Ejecuta la suite de HU-10 Consultar disponibilidad horaria (16/16 tests)
-    npm run test:bdd:hu11   # Ejecuta la suite de HU-11 Confirmar turno (24/24 tests)
+    npm run test:bdd              # Ejecuta toda la suite BDD completa (210+ tests)
+    npm run test:bdd:hu6          # HU-06 Modificar cliente (24/24 tests)
+    npm run test:bdd:hu8          # HU-08 Modificar vehículo (21/21 tests)
+    npm run test:bdd:hu9          # HU-09 Registrar solicitud de turno (30/30 tests)
+    npm run test:bdd:hu10         # HU-10 Consultar disponibilidad horaria (16/16 tests)
+    npm run test:bdd:hu11         # HU-11 Confirmar turno (24/24 tests)
+    npm run test:bdd:hu12         # HU-12 Cancelar turno (25/25 tests)
+    npm run test:bdd:hu13         # HU-13 Modificar turno (28/28 tests)
+    npm run test:bdd:consultar_turnos # HU-12 Consultar turnos por filtros (17/17 tests)
+    npm run test:bdd:hu15         # HU-15 Finalizar turno y control ausente (15/15 tests)
+    npm run test:bdd:hu19         # HU-19 Registrar presupuesto de reparación (23/23 tests)
     ```
 
 

@@ -234,6 +234,8 @@ export const consultarDisponibilidadHoraria = async (req: Request, res: Response
       mensaje,
       horariosDisponibles,
       horariosLibres: horariosDisponibles,
+      horarios_libres: horariosDisponibles,
+      horarios_disponibles: horariosDisponibles,
       horariosOcupados: Array.from(occupiedHoursMap.entries()).map(([hora, estado]) => ({ hora, estado }))
     });
   } catch (err: any) {
@@ -759,6 +761,409 @@ export const confirmarTurno = async (req: Request, res: Response): Promise<void>
   } catch (err: any) {
     console.error('[Backend Turnos] Error al confirmar turno:', err);
     res.status(500).json({ error: 'Error interno al confirmar el turno' });
+  }
+};
+
+/**
+ * HU-12: Cancelar turno
+ * POST /api/turnos/cancelar
+ * POST /api/turnos/:id/cancelar
+ * POST /api/turnos/public-cancel
+ * 
+ * Criterios de Aceptación:
+ * 1. Sólo se cancelan turnos en estado Solicitado o Confirmado
+ * 2. El motivo es obligatorio
+ * 3. El turno pasa a "Cancelado" y el horario vuelve a estar disponible
+ */
+export const cancelarTurno = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const paramId = req.params?.id;
+    const {
+      id,
+      turno_id,
+      turnoId,
+      nro_turno,
+      nroTurno,
+      patente,
+      vehiculo_dominio,
+      vehiculoDominio,
+      cliente_dni,
+      clienteDni,
+      cliente_nombre,
+      clienteNombre,
+      fecha,
+      hora,
+      motivo,
+      motivo_cancelacion,
+      motivoCancelacion,
+      cancelado_por,
+      canceladoPor
+    } = req.body;
+
+    const targetId = String(paramId || id || turno_id || turnoId || '').trim();
+    const targetNro = nro_turno || nroTurno ? Number(nro_turno || nroTurno) : null;
+    const targetPatente = String(patente || vehiculo_dominio || vehiculoDominio || '').trim().toUpperCase();
+    const targetDni = String(cliente_dni || clienteDni || '').trim().replace(/[\s-]/g, '');
+    const targetNombre = String(cliente_nombre || clienteNombre || '').trim().toLowerCase();
+    const targetFecha = String(fecha || '').trim();
+    const targetHora = String(hora || '').trim();
+
+    // 1. Buscar turno en memoria local (o Supabase)
+    const turno = localTurnosSeed.find(t => {
+      if (targetId && t.id === targetId) return true;
+      if (targetNro && t.nro_turno === targetNro) return true;
+      if (targetFecha && targetHora && targetNombre) {
+        const normTFecha = normalizeDate(t.fecha);
+        const normQFecha = normalizeDate(targetFecha);
+        const sameDate = normTFecha.ddmmyyyy === normQFecha.ddmmyyyy || normTFecha.iso === normQFecha.iso;
+        const sameHora = normalizeTime(t.hora) === normalizeTime(targetHora);
+        const sameClient = t.cliente_nombre && t.cliente_nombre.toLowerCase().includes(targetNombre);
+        if (sameDate && sameHora && sameClient) return true;
+      }
+      if (targetFecha && targetHora && targetPatente) {
+        const normTFecha = normalizeDate(t.fecha);
+        const normQFecha = normalizeDate(targetFecha);
+        const sameDate = normTFecha.ddmmyyyy === normQFecha.ddmmyyyy || normTFecha.iso === normQFecha.iso;
+        const sameHora = normalizeTime(t.hora) === normalizeTime(targetHora);
+        const samePlate = t.vehiculo_dominio.toUpperCase() === targetPatente;
+        if (sameDate && sameHora && samePlate) return true;
+      }
+      if (targetPatente && t.vehiculo_dominio.toUpperCase() === targetPatente) {
+        if (!targetId && !targetNro && !targetFecha) return true;
+      }
+      if (targetDni && t.cliente_documento && t.cliente_documento.replace(/[\s-]/g, '') === targetDni) {
+        if (!targetId && !targetNro && !targetPatente && !targetFecha) return true;
+      }
+      if (targetNombre && t.cliente_nombre && t.cliente_nombre.toLowerCase().includes(targetNombre)) {
+        if (!targetId && !targetNro && !targetPatente && !targetDni && !targetFecha) return true;
+      }
+      return false;
+    });
+
+    if (!turno) {
+      res.status(404).json({
+        success: false,
+        error: 'Turno no encontrado'
+      });
+      return;
+    }
+
+    // Criterio 2: El motivo es obligatorio
+    // Si se deja vacío: "El motivo de cancelación es obligatorio"
+    const rawMotivo = String(motivo ?? motivo_cancelacion ?? motivoCancelacion ?? '').trim();
+    if (!rawMotivo) {
+      res.status(400).json({
+        success: false,
+        error: 'El motivo de cancelación es obligatorio',
+        message: 'El motivo de cancelación es obligatorio',
+        estado: turno.estado
+      });
+      return;
+    }
+
+    // Criterio 1: Sólo se cancelan turnos en estado Solicitado o Confirmado
+    const estadoActual = turno.estado;
+    const canCancel = estadoActual === 'Solicitado' || 
+                      estadoActual === 'Confirmado' || 
+                      estadoActual === 'Pendiente de Confirmación (24hs)';
+
+    if (!canCancel) {
+      res.status(400).json({
+        success: false,
+        error: estadoActual === 'Cancelado'
+          ? 'El turno ya se encuentra cancelado'
+          : 'Sólo se cancelan turnos en estado Solicitado o Confirmado',
+        message: estadoActual === 'Cancelado'
+          ? 'El turno ya se encuentra cancelado'
+          : 'Sólo se cancelan turnos en estado Solicitado o Confirmado',
+        estado: estadoActual
+      });
+      return;
+    }
+
+    // Criterio 3: El turno pasa a "Cancelado" y el horario vuelve a estar disponible
+    turno.estado = 'Cancelado';
+    turno.motivo_cancelacion = rawMotivo;
+
+    const now = new Date();
+    const { fecha: regFecha, hora: regHora } = formatDateTimeDisplay(now);
+    turno.fecha_cancelacion = regFecha;
+    turno.hora_cancelacion = regHora;
+    turno.cancelado_por = String(cancelado_por || canceladoPor || (req as any).user?.nombre || 'Responsable de Recepción');
+
+    // Sincronizar en Supabase si está disponible
+    if (isSupabaseConnected && supabase) {
+      try {
+        await supabase
+          .from('turnos')
+          .update({
+            estado_turno_id: 5, // 'Cancelado'
+            motivo_cancelacion: rawMotivo,
+            fecha_cancelacion: regFecha,
+            hora_cancelacion: regHora,
+            cancelado_por: turno.cancelado_por
+          })
+          .eq('nro_turno', turno.nro_turno);
+      } catch (dbErr) {
+        console.warn('[Backend Turnos] Error actualizando cancelación en Supabase, persistido en memoria local:', dbErr);
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Turno cancelado exitosamente',
+      estado: 'Cancelado',
+      motivo_cancelacion: rawMotivo,
+      turno,
+      horario_liberado: {
+        sucursal: turno.sucursal,
+        fecha: turno.fecha,
+        hora: turno.hora,
+        disponible: true
+      }
+    });
+  } catch (err: any) {
+    console.error('[Backend Turnos] Error al cancelar turno:', err);
+    res.status(500).json({ error: 'Error interno al cancelar el turno' });
+  }
+};
+
+/**
+ * HU-13: Modificar turno
+ * PUT /api/turnos/:id
+ * POST /api/turnos/modificar
+ * PUT /api/turnos/modificar
+ * 
+ * Criterios de Aceptación:
+ * 1. Sólo se modifican turnos Solicitados o Confirmados
+ * 2. El nuevo horario debe estar disponible
+ * 3. Si el turno estaba Confirmado pasa a "Reprogramado" hasta reasignarle fecha y horario, y vuelve a "Confirmado"
+ */
+export const modificarTurno = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const paramId = req.params?.id;
+    const {
+      id,
+      turno_id,
+      turnoId,
+      nro_turno,
+      nroTurno,
+      patente,
+      vehiculo_dominio,
+      vehiculoDominio,
+      cliente_nombre,
+      clienteNombre,
+      fecha_actual,
+      hora_actual,
+      nueva_fecha,
+      nuevaFecha,
+      fecha,
+      nuevo_horario,
+      nuevoHorario,
+      nueva_hora,
+      hora,
+      horario,
+      nueva_sucursal,
+      nuevaSucursal,
+      sucursal
+    } = req.body;
+
+    const targetId = String(paramId || id || turno_id || turnoId || '').trim();
+    const targetNro = nro_turno || nroTurno ? Number(nro_turno || nroTurno) : null;
+    const targetPatente = String(patente || vehiculo_dominio || vehiculoDominio || '').trim().toUpperCase();
+    const targetNombre = String(cliente_nombre || clienteNombre || '').trim().toLowerCase();
+    const targetFecha = String(fecha_actual || '').trim();
+    const targetHora = String(hora_actual || '').trim();
+
+    // 1. Buscar turno en memoria local (o Supabase)
+    const turno = localTurnosSeed.find(t => {
+      if (targetId && t.id === targetId) return true;
+      if (targetNro && t.nro_turno === targetNro) return true;
+      if (targetFecha && targetHora && targetNombre) {
+        const normTFecha = normalizeDate(t.fecha);
+        const normQFecha = normalizeDate(targetFecha);
+        const sameDate = normTFecha.ddmmyyyy === normQFecha.ddmmyyyy || normTFecha.iso === normQFecha.iso;
+        const sameHora = normalizeTime(t.hora) === normalizeTime(targetHora);
+        const sameClient = t.cliente_nombre && t.cliente_nombre.toLowerCase().includes(targetNombre);
+        if (sameDate && sameHora && sameClient) return true;
+      }
+      if (targetFecha && targetHora && targetPatente) {
+        const normTFecha = normalizeDate(t.fecha);
+        const normQFecha = normalizeDate(targetFecha);
+        const sameDate = normTFecha.ddmmyyyy === normQFecha.ddmmyyyy || normTFecha.iso === normQFecha.iso;
+        const sameHora = normalizeTime(t.hora) === normalizeTime(targetHora);
+        const samePlate = t.vehiculo_dominio.toUpperCase() === targetPatente;
+        if (sameDate && sameHora && samePlate) return true;
+      }
+      if (targetPatente && t.vehiculo_dominio.toUpperCase() === targetPatente) {
+        if (!targetId && !targetNro && !targetFecha) return true;
+      }
+      if (targetNombre && t.cliente_nombre && t.cliente_nombre.toLowerCase().includes(targetNombre)) {
+        if (!targetId && !targetNro && !targetPatente && !targetFecha) return true;
+      }
+      return false;
+    });
+
+    if (!turno) {
+      res.status(404).json({
+        success: false,
+        error: 'Turno no encontrado'
+      });
+      return;
+    }
+
+    // Criterio 1: Sólo se modifican turnos Solicitados o Confirmados
+    const estadoPrevio = turno.estado;
+    const canModify = estadoPrevio === 'Solicitado' || 
+                      estadoPrevio === 'Confirmado' || 
+                      estadoPrevio === 'Pendiente de Confirmación (24hs)' ||
+                      estadoPrevio === 'Reprogramado';
+
+    if (!canModify) {
+      res.status(400).json({
+        success: false,
+        error: 'Sólo se modifican turnos Solicitados o Confirmados',
+        message: 'Sólo se modifican turnos Solicitados o Confirmados',
+        estado: estadoPrevio
+      });
+      return;
+    }
+
+    // 2. Validar nuevos campos
+    const rawNewDate = String(nueva_fecha || nuevaFecha || fecha || '').trim();
+    const rawNewTime = String(nuevo_horario || nuevoHorario || nueva_hora || hora || horario || '').trim();
+    const targetSucursal = String(nueva_sucursal || nuevaSucursal || sucursal || turno.sucursal || 'Centro').trim();
+
+    if (!rawNewDate || !rawNewTime) {
+      res.status(400).json({
+        success: false,
+        error: 'Debe ingresar la nueva fecha y el nuevo horario para modificar el turno'
+      });
+      return;
+    }
+
+    const normNewDate = normalizeDate(rawNewDate);
+    const normNewTime = normalizeTime(rawNewTime);
+
+    if (!normNewDate.parsedDate) {
+      res.status(400).json({
+        success: false,
+        error: 'Formato de fecha inválido'
+      });
+      return;
+    }
+
+    // Validar fecha pasada
+    if (isPastDate(normNewDate.parsedDate)) {
+      res.status(400).json({
+        success: false,
+        error: 'No se permiten turnos en fechas pasadas'
+      });
+      return;
+    }
+
+    // Validar rango de atención de la sucursal
+    const sucursalConfig = localSucursalesSeed.find(
+      s => s.nombre.toLowerCase() === targetSucursal.toLowerCase()
+    ) || localSucursalesSeed[0];
+
+    const availableSlots = getBranchTimeSlots(sucursalConfig.horario_apertura, sucursalConfig.horario_cierre);
+    if (!availableSlots.includes(normNewTime)) {
+      res.status(400).json({
+        success: false,
+        error: `El horario ${normNewTime} se encuentra fuera del rango de atención de la sucursal (${sucursalConfig.horario_apertura} a ${sucursalConfig.horario_cierre})`
+      });
+      return;
+    }
+
+    // Criterio 2: El nuevo horario debe estar disponible
+    // Si ya está ocupado por otro turno distinto en estado Solicitado o Confirmado:
+    const slotOcupado = localTurnosSeed.some(t => {
+      // Excluir el propio turno que se está modificando
+      if (t.id === turno.id || t.nro_turno === turno.nro_turno) return false;
+      if (!isTurnoOcupandoHorario(t.estado)) return false;
+      const tNorm = normalizeDate(t.fecha);
+      const sameDate = tNorm.iso === normNewDate.iso || tNorm.ddmmyyyy === normNewDate.ddmmyyyy;
+      const sameSucursal = t.sucursal.toLowerCase() === sucursalConfig.nombre.toLowerCase();
+      const sameHour = normalizeTime(t.hora) === normNewTime;
+      return sameDate && sameSucursal && sameHour;
+    });
+
+    if (slotOcupado) {
+      // Mensaje exacto especificado en el criterio y escenario BDD:
+      res.status(409).json({
+        success: false,
+        error: 'El horario seleccionado no está disponible. Seleccione otro horario',
+        message: 'El horario seleccionado no está disponible. Seleccione otro horario',
+        estado: turno.estado,
+        fecha: turno.fecha,
+        hora: turno.hora
+      });
+      return;
+    }
+
+    // Criterio 3: Si el turno estaba Confirmado pasa a "Reprogramado" hasta reasignarle fecha y horario, y vuelve a "Confirmado"
+    if (!turno.historial_estados) {
+      turno.historial_estados = [estadoPrevio];
+    }
+
+    if (estadoPrevio === 'Confirmado') {
+      // Registra en el historial que pasó a Reprogramado y luego a Confirmado
+      turno.historial_estados.push('Reprogramado', 'Confirmado');
+      turno.estado = 'Confirmado';
+    } else {
+      turno.historial_estados.push('Reprogramado', 'Solicitado');
+      turno.estado = 'Solicitado';
+    }
+
+    const anteriorFecha = turno.fecha;
+    const anteriorHora = turno.hora;
+
+    // Actualizar fecha y horario
+    turno.fecha = normNewDate.ddmmyyyy;
+    turno.hora = normNewTime;
+    turno.sucursal = sucursalConfig.nombre;
+
+    const now = new Date();
+    const { fecha: regFecha, hora: regHora } = formatDateTimeDisplay(now);
+    turno.fecha_modificacion = regFecha;
+    turno.hora_modificacion = regHora;
+
+    // Sincronizar en Supabase si está disponible
+    if (isSupabaseConnected && supabase) {
+      try {
+        await supabase
+          .from('turnos')
+          .update({
+            fecha: normNewDate.iso,
+            hora: normNewTime,
+            sucursal: sucursalConfig.nombre,
+            estado_turno_id: turno.estado === 'Confirmado' ? 3 : 1
+          })
+          .eq('nro_turno', turno.nro_turno);
+      } catch (dbErr) {
+        console.warn('[Backend Turnos] Error actualizando turno en Supabase, persistido en memoria local:', dbErr);
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Turno modificado correctamente',
+      turno,
+      fecha: normNewDate.ddmmyyyy,
+      hora: normNewTime,
+      estado: turno.estado,
+      historial_estados: turno.historial_estados,
+      horario_anterior_liberado: {
+        sucursal: turno.sucursal,
+        fecha: anteriorFecha,
+        hora: anteriorHora,
+        disponible: true
+      }
+    });
+  } catch (err: any) {
+    console.error('[Backend Turnos] Error al modificar turno:', err);
+    res.status(500).json({ error: 'Error interno al modificar el turno' });
   }
 };
 

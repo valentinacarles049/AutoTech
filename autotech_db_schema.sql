@@ -149,6 +149,29 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='turnos' AND column_name='notificacion_enviada') THEN
     ALTER TABLE turnos ADD COLUMN notificacion_enviada BOOLEAN DEFAULT FALSE;
   END IF;
+  -- HU-12: Columnas para cancelación de turnos
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='turnos' AND column_name='motivo_cancelacion') THEN
+    ALTER TABLE turnos ADD COLUMN motivo_cancelacion TEXT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='turnos' AND column_name='fecha_cancelacion') THEN
+    ALTER TABLE turnos ADD COLUMN fecha_cancelacion VARCHAR(20);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='turnos' AND column_name='hora_cancelacion') THEN
+    ALTER TABLE turnos ADD COLUMN hora_cancelacion VARCHAR(10);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='turnos' AND column_name='cancelado_por') THEN
+    ALTER TABLE turnos ADD COLUMN cancelado_por VARCHAR(50);
+  END IF;
+  -- HU-13: Columnas para modificación y reprogramación de turnos
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='turnos' AND column_name='historial_estados') THEN
+    ALTER TABLE turnos ADD COLUMN historial_estados TEXT[];
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='turnos' AND column_name='fecha_modificacion') THEN
+    ALTER TABLE turnos ADD COLUMN fecha_modificacion VARCHAR(20);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='turnos' AND column_name='hora_modificacion') THEN
+    ALTER TABLE turnos ADD COLUMN hora_modificacion VARCHAR(10);
+  END IF;
   -- HU-15: Columnas para finalización de turno (presentación de vehículo) y habilitación de presupuesto
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='turnos' AND column_name='presupuesto_habilitado') THEN
     ALTER TABLE turnos ADD COLUMN presupuesto_habilitado BOOLEAN DEFAULT FALSE;
