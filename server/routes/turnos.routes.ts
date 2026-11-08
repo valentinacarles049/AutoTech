@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { 
   registrarTurno, 
   listarTurnos, 
+  consultarTurnos,
   listarHorariosDisponibles, 
   consultarDisponibilidadHoraria,
   listarSucursales,
@@ -28,8 +29,9 @@ router.post('/confirmar', confirmarTurno);
 router.post('/:id/confirmar', confirmarTurno);
 router.post('/public-confirm', confirmarTurno);
 
-// Listado de turnos
+// HU-12: Consultar / Listar turnos filtrando por estado, fecha y sucursal
 router.get('/', listarTurnos);
+router.get('/consultar', consultarTurnos);
 
 // HU-10: Consultar disponibilidad horaria de la sucursal elegida
 router.get('/disponibilidad', consultarDisponibilidadHoraria);

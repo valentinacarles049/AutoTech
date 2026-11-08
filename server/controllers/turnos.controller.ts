@@ -403,43 +403,175 @@ export const registrarTurno = async (req: Request, res: Response): Promise<void>
 };
 
 /**
- * Listar turnos registrados
+ * Helper puro para filtrar y ordenar turnos (HU-12)
+ * Criterios de aceptación:
+ * 1. Filtros combinables: estado, rango de fechas y sucursal
+ * 2. El listado muestra cliente, patente, motivo de consulta, fecha, hora y estado
+ * 3. Se puede ordenar por fecha y hora
+ */
+export interface FiltroTurnosQuery {
+  estado?: string;
+  fecha?: string;
+  fechaDesde?: string;
+  fecha_desde?: string;
+  desde?: string;
+  fechaHasta?: string;
+  fecha_hasta?: string;
+  hasta?: string;
+  sucursal?: string;
+  patente?: string;
+  cliente?: string;
+  ordenar?: string | boolean;
+  ordenarPor?: string;
+  sortBy?: string;
+  orden?: string;
+  direccion?: string;
+  sortOrder?: string;
+}
+
+export const filtrarYOrdenarTurnos = (
+  turnosList: LocalTurno[],
+  filtros: FiltroTurnosQuery = {}
+) => {
+  let resultado = [...turnosList];
+
+  // 1. Filtro por Estado (combinable)
+  const rawEstado = String(filtros.estado || '').trim();
+  if (rawEstado && rawEstado.toLowerCase() !== 'todos' && rawEstado.toLowerCase() !== 'todas') {
+    resultado = resultado.filter(t => t.estado.trim().toLowerCase() === rawEstado.toLowerCase());
+  }
+
+  // 2. Filtro por Sucursal (combinable)
+  const rawSucursal = String(filtros.sucursal || '').trim();
+  if (rawSucursal && rawSucursal.toLowerCase() !== 'todas' && rawSucursal.toLowerCase() !== 'todos') {
+    resultado = resultado.filter(t => t.sucursal.trim().toLowerCase() === rawSucursal.toLowerCase());
+  }
+
+  // 3. Filtro por Rango de Fechas (fechaDesde .. fechaHasta) o fecha puntual (combinable)
+  const rawDesde = String(filtros.fechaDesde || filtros.fecha_desde || filtros.desde || '').trim();
+  const rawHasta = String(filtros.fechaHasta || filtros.fecha_hasta || filtros.hasta || '').trim();
+  const rawFecha = String(filtros.fecha || '').trim();
+
+  if (rawDesde) {
+    const normDesde = normalizeDate(rawDesde);
+    if (normDesde.iso) {
+      resultado = resultado.filter(t => {
+        const tNorm = normalizeDate(t.fecha);
+        return tNorm.iso >= normDesde.iso;
+      });
+    }
+  }
+
+  if (rawHasta) {
+    const normHasta = normalizeDate(rawHasta);
+    if (normHasta.iso) {
+      resultado = resultado.filter(t => {
+        const tNorm = normalizeDate(t.fecha);
+        return tNorm.iso <= normHasta.iso;
+      });
+    }
+  }
+
+  if (rawFecha && !rawDesde && !rawHasta) {
+    const normFecha = normalizeDate(rawFecha);
+    if (normFecha.iso) {
+      resultado = resultado.filter(t => {
+        const tNorm = normalizeDate(t.fecha);
+        return tNorm.iso === normFecha.iso || tNorm.ddmmyyyy === normFecha.ddmmyyyy;
+      });
+    }
+  }
+
+  // 4. Filtros adicionales opcionales (patente / cliente)
+  if (filtros.patente) {
+    const cleanPat = String(filtros.patente).trim().toUpperCase();
+    if (cleanPat) {
+      resultado = resultado.filter(t => t.vehiculo_dominio.toUpperCase().includes(cleanPat));
+    }
+  }
+
+  if (filtros.cliente) {
+    const cleanCli = String(filtros.cliente).trim().toLowerCase();
+    if (cleanCli) {
+      resultado = resultado.filter(t => (t.cliente_nombre || '').toLowerCase().includes(cleanCli));
+    }
+  }
+
+  // 5. Ordenamiento por fecha y hora (Criterio 3)
+  const shouldNotSort = filtros.ordenar === false || filtros.ordenar === 'false' || filtros.ordenar === 'none';
+  const rawDir = String(filtros.orden || filtros.direccion || filtros.sortOrder || (filtros.ordenar === 'desc' ? 'desc' : 'asc')).trim().toLowerCase();
+  const isDesc = rawDir === 'desc' || rawDir === 'descendente';
+
+  if (!shouldNotSort) {
+    resultado.sort((a, b) => {
+      const isoA = normalizeDate(a.fecha).iso;
+      const isoB = normalizeDate(b.fecha).iso;
+      const timeA = normalizeTime(a.hora);
+      const timeB = normalizeTime(b.hora);
+      const keyA = `${isoA}T${timeA}`;
+      const keyB = `${isoB}T${timeB}`;
+      if (keyA < keyB) return isDesc ? 1 : -1;
+      if (keyA > keyB) return isDesc ? -1 : 1;
+      return 0;
+    });
+  }
+
+  // 6. Proyección con todos los campos requeridos (Criterio 2: cliente, patente, motivo de consulta, fecha, hora y estado)
+  const formatted = resultado.map(t => {
+    const clientObj = localClientsSeed.find(c =>
+      c.id === t.cliente_id ||
+      (t.cliente_documento && c.nro_documento.replace(/[\s-]/g, '') === t.cliente_documento.replace(/[\s-]/g, ''))
+    );
+    const resolvedCliente = t.cliente_nombre || (clientObj ? `${clientObj.nombre} ${clientObj.apellido}` : 'Cliente');
+    const resolvedFecha = normalizeDate(t.fecha).ddmmyyyy || t.fecha;
+    const resolvedHora = normalizeTime(t.hora) || t.hora;
+
+    return {
+      ...t,
+      cliente: resolvedCliente,
+      cliente_nombre: resolvedCliente,
+      clienteNombre: resolvedCliente,
+      patente: t.vehiculo_dominio,
+      vehiculo_dominio: t.vehiculo_dominio,
+      vehiculoDominio: t.vehiculo_dominio,
+      motivo: t.motivo_consulta,
+      motivo_consulta: t.motivo_consulta,
+      motivoConsulta: t.motivo_consulta,
+      sucursal: t.sucursal,
+      fecha: resolvedFecha,
+      hora: resolvedHora,
+      estado: t.estado
+    };
+  });
+
+  const mensaje = formatted.length === 0
+    ? 'No se encontraron turnos para los filtros seleccionados'
+    : `Se encontraron ${formatted.length} turnos`;
+
+  return {
+    total: formatted.length,
+    count: formatted.length,
+    mensaje,
+    message: mensaje,
+    turnos: formatted
+  };
+};
+
+/**
+ * HU-12: Consultar / Listar turnos filtrando por estado, fecha y sucursal
  * GET /api/turnos
+ * GET /api/turnos/consultar
  */
 export const listarTurnos = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { sucursal, fecha, estado, patente } = req.query;
-
-    let resultado = [...localTurnosSeed];
-
-    if (sucursal) {
-      resultado = resultado.filter(t => t.sucursal.toLowerCase() === String(sucursal).toLowerCase());
-    }
-
-    if (fecha) {
-      const norm = normalizeDate(String(fecha));
-      resultado = resultado.filter(t => {
-        const tNorm = normalizeDate(t.fecha);
-        return tNorm.iso === norm.iso || tNorm.ddmmyyyy === norm.ddmmyyyy;
-      });
-    }
-
-    if (estado) {
-      resultado = resultado.filter(t => t.estado.toLowerCase() === String(estado).toLowerCase());
-    }
-
-    if (patente) {
-      resultado = resultado.filter(t => t.vehiculo_dominio.toUpperCase() === String(patente).toUpperCase());
-    }
-
-    res.json({
-      total: resultado.length,
-      turnos: resultado
-    });
+    const result = filtrarYOrdenarTurnos(localTurnosSeed, req.query as FiltroTurnosQuery);
+    res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: 'Error al listar turnos' });
   }
 };
+
+export const consultarTurnos = listarTurnos;
 
 /**
  * Listar catálogo de sucursales

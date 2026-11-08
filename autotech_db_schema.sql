@@ -24,7 +24,9 @@ INSERT INTO estado_turnos (descripcion_estado) VALUES
 ('Pendiente de Confirmación (24hs)'),
 ('Confirmado'),
 ('En Taller'),
-('Cancelado')
+('Cancelado'),
+('Finalizado'),
+('Ausente')
 ON CONFLICT (descripcion_estado) DO NOTHING;
 
 -- 1.1 TABLA: SUCURSALES (HU-09: Registro de solicitud de turno)
@@ -146,6 +148,16 @@ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='turnos' AND column_name='notificacion_enviada') THEN
     ALTER TABLE turnos ADD COLUMN notificacion_enviada BOOLEAN DEFAULT FALSE;
+  END IF;
+  -- HU-15: Columnas para finalización de turno (presentación de vehículo) y habilitación de presupuesto
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='turnos' AND column_name='presupuesto_habilitado') THEN
+    ALTER TABLE turnos ADD COLUMN presupuesto_habilitado BOOLEAN DEFAULT FALSE;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='turnos' AND column_name='vehiculo_presentado') THEN
+    ALTER TABLE turnos ADD COLUMN vehiculo_presentado BOOLEAN DEFAULT FALSE;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='turnos' AND column_name='fecha_finalizacion') THEN
+    ALTER TABLE turnos ADD COLUMN fecha_finalizacion VARCHAR(20);
   END IF;
 END $$;
 
@@ -580,6 +592,140 @@ $$;
 GRANT EXECUTE ON FUNCTION modificar_vehiculo(VARCHAR, VARCHAR, INT, VARCHAR, VARCHAR, INT) TO anon, authenticated, postgres;
 
 
+-- ============================================================
+-- PROCEDIMIENTO ALMACENADO: CONSULTAR TURNOS POR ESTADO Y FECHA (HU-12)
+-- Criterios de Aceptación:
+-- 1. Filtros combinables: estado, rango de fechas y sucursal
+-- 2. El listado muestra cliente, patente, motivo de consulta, fecha, hora y estado
+-- 3. Se puede ordenar por fecha y hora
+-- ============================================================
+CREATE OR REPLACE FUNCTION consultar_turnos(
+  p_estado VARCHAR DEFAULT NULL,
+  p_fecha_desde DATE DEFAULT NULL,
+  p_fecha_hasta DATE DEFAULT NULL,
+  p_sucursal VARCHAR DEFAULT NULL,
+  p_orden VARCHAR DEFAULT 'ASC'
+)
+RETURNS TABLE (
+  id UUID,
+  nro_turno INT,
+  cliente VARCHAR,
+  patente VARCHAR,
+  motivo_consulta TEXT,
+  sucursal VARCHAR,
+  fecha VARCHAR,
+  hora VARCHAR,
+  estado VARCHAR
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT 
+    t.id,
+    t.nro_turno,
+    COALESCE(c.nombre || ' ' || c.apellido, c.razon_social, 'Cliente')::VARCHAR AS cliente,
+    t.vehiculo_dominio::VARCHAR AS patente,
+    t.motivo_consulta,
+    t.sucursal,
+    TO_CHAR(t.fecha, 'DD/MM/YYYY')::VARCHAR AS fecha,
+    t.hora,
+    et.descripcion_estado::VARCHAR AS estado
+  FROM turnos t
+  LEFT JOIN clientes c ON t.cliente_id = c.id
+  JOIN estado_turnos et ON t.estado_turno_id = et.id
+  WHERE (p_estado IS NULL OR TRIM(p_estado) = '' OR LOWER(TRIM(p_estado)) = 'todos' OR LOWER(et.descripcion_estado) = LOWER(TRIM(p_estado)))
+    AND (p_fecha_desde IS NULL OR t.fecha >= p_fecha_desde)
+    AND (p_fecha_hasta IS NULL OR t.fecha <= p_fecha_hasta)
+    AND (p_sucursal IS NULL OR TRIM(p_sucursal) = '' OR LOWER(TRIM(p_sucursal)) = 'todas' OR LOWER(t.sucursal) = LOWER(TRIM(p_sucursal)))
+  ORDER BY 
+    CASE WHEN UPPER(TRIM(p_orden)) = 'DESC' THEN NULL ELSE t.fecha END ASC,
+    CASE WHEN UPPER(TRIM(p_orden)) = 'DESC' THEN NULL ELSE t.hora END ASC,
+    CASE WHEN UPPER(TRIM(p_orden)) = 'DESC' THEN t.fecha ELSE NULL END DESC,
+    CASE WHEN UPPER(TRIM(p_orden)) = 'DESC' THEN t.hora ELSE NULL END DESC;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION consultar_turnos(VARCHAR, DATE, DATE, VARCHAR, VARCHAR) TO anon, authenticated, postgres;
+
+
+-- ============================================================
+-- PROCEDIMIENTO ALMACENADO: FINALIZAR TURNO (HU-15)
+-- Criterios de Aceptación:
+-- 1. Sólo se finalizan turnos Confirmados del día
+-- 2. El turno pasa a "Finalizado"
+-- 3. Queda habilitado el registro del presupuesto
+-- 4. Si llega la fecha y hora del turno y el vehículo no se presentó, el turno pasa a "Ausente"
+-- ============================================================
+CREATE OR REPLACE FUNCTION finalizar_turno(
+  p_patente VARCHAR,
+  p_fecha_actual DATE DEFAULT CURRENT_DATE,
+  p_vehiculo_presentado BOOLEAN DEFAULT TRUE
+)
+RETURNS TABLE (
+  id UUID,
+  nro_turno INT,
+  vehiculo_dominio VARCHAR,
+  estado VARCHAR,
+  presupuesto_habilitado BOOLEAN,
+  mensaje VARCHAR
+)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_turno RECORD;
+  v_estado_finalizado_id INT;
+  v_estado_ausente_id INT;
+BEGIN
+  SELECT t.id, t.nro_turno, t.vehiculo_dominio, t.fecha, et.descripcion_estado AS estado
+  INTO v_turno
+  FROM turnos t
+  JOIN estado_turnos et ON t.estado_turno_id = et.id
+  WHERE UPPER(t.vehiculo_dominio) = UPPER(TRIM(p_patente))
+  ORDER BY t.created_at DESC
+  LIMIT 1;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Turno no encontrado';
+  END IF;
+
+  -- Si el vehículo no se presentó al llegar la fecha/hora del turno
+  IF NOT p_vehiculo_presentado THEN
+    SELECT id INTO v_estado_ausente_id FROM estado_turnos WHERE descripcion_estado = 'Ausente';
+    UPDATE turnos
+    SET estado_turno_id = v_estado_ausente_id,
+        presupuesto_habilitado = FALSE,
+        vehiculo_presentado = FALSE
+    WHERE turnos.id = v_turno.id;
+
+    RETURN QUERY
+    SELECT v_turno.id, v_turno.nro_turno, v_turno.vehiculo_dominio, 'Ausente'::VARCHAR, FALSE, 'El turno pasó al estado Ausente'::VARCHAR;
+    RETURN;
+  END IF;
+
+  -- Criterio 1: Sólo se pueden finalizar turnos confirmados del día
+  IF v_turno.estado <> 'Confirmado' OR v_turno.fecha <> p_fecha_actual THEN
+    RAISE EXCEPTION 'Sólo se pueden finalizar turnos confirmados del día';
+  END IF;
+
+  SELECT id INTO v_estado_finalizado_id FROM estado_turnos WHERE descripcion_estado = 'Finalizado';
+
+  -- Criterio 2 y 3: El turno pasa a "Finalizado" y queda habilitado el registro del presupuesto
+  UPDATE turnos
+  SET estado_turno_id = v_estado_finalizado_id,
+      presupuesto_habilitado = TRUE,
+      vehiculo_presentado = TRUE,
+      fecha_finalizacion = TO_CHAR(p_fecha_actual, 'DD/MM/YYYY')
+  WHERE turnos.id = v_turno.id;
+
+  RETURN QUERY
+  SELECT v_turno.id, v_turno.nro_turno, v_turno.vehiculo_dominio, 'Finalizado'::VARCHAR, TRUE, 'Turno finalizado correctamente'::VARCHAR;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION finalizar_turno(VARCHAR, DATE, BOOLEAN) TO anon, authenticated, postgres;
+
+
 
 
 -- ============================================================
@@ -642,6 +788,7 @@ DECLARE
   cli2_id UUID;
   cli3_id UUID;
   cli_juan_id UUID;
+  cli_maria_id UUID;
   turno1_id UUID;
 BEGIN
   -- Insertar Clientes si no existen
@@ -666,9 +813,10 @@ BEGIN
     VALUES ('Juan', 'Pérez', 'DNI', '30123456', NULL, 'juan.perez@gmail.com', '0351-154987654', 'Córdoba Capital', NULL)
     RETURNING id INTO cli_juan_id;
 
-    -- HU-06: Cliente María Gómez para verificación de duplicidad
+    -- HU-06 & HU-12: Cliente María Gómez para verificación de duplicidad y consulta de turnos
     INSERT INTO clientes (nombre, apellido, tipo_documento, nro_documento, razon_social, email, telefono, localidad, nivel_fidelizacion)
-    VALUES ('María', 'Gómez', 'DNI', '28999888', NULL, 'maria.gomez@gmail.com', '0351-156112233', 'Córdoba Capital', NULL);
+    VALUES ('María', 'Gómez', 'DNI', '28999888', NULL, 'maria.gomez@gmail.com', '0351-156112233', 'Córdoba Capital', NULL)
+    RETURNING id INTO cli_maria_id;
 
     -- Insertar Vehículos asociados
     INSERT INTO vehiculos (dominio, cliente_id, marca, modelo, anio, kilometraje_actual)
@@ -678,7 +826,8 @@ BEGIN
     ('AC-789-DD', cli1_id, 'Volkswagen', 'Amarok V6 3.0', 2020, 89000),
     ('AD-991-LK', cli2_id, 'Ford', 'Ranger 3.2 TDCi Limited', 2019, 104000),
     ('AD-332-LM', cli3_id, 'Ford', 'Ranger 3.2 TDCi XLT', 2019, 98400),
-    ('AB123CD', cli_juan_id, 'Toyota', 'Corolla 2.0 SEG', 2022, 45000);
+    ('AB123CD', cli_juan_id, 'Toyota', 'Corolla 2.0 SEG', 2022, 45000),
+    ('AC456EF', cli_maria_id, 'Peugeot', '208 Feline 1.6', 2023, 22000);
 
     -- Insertar Turno Inicial
     INSERT INTO turnos (vehiculo_dominio, estado_turno_id, fecha_hora_propuesta, motivo_consulta, es_emergencia)

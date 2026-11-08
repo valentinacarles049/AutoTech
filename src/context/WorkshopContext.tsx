@@ -11,7 +11,9 @@ import {
   Sucursal, 
   DisponibilidadHorariaResult,
   ConfirmarTurnoPayload,
-  ConfirmarTurnoResult
+  ConfirmarTurnoResult,
+  FiltroTurnosParams,
+  ConsultarTurnosResult
 } from '../types/autotech';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { getDefaultScreenForRole, isScreenAllowed } from '../utils/permissions';
@@ -218,6 +220,9 @@ interface WorkshopContextType {
 
   // HU-11: Confirmar turno
   confirmarTurno: (data: ConfirmarTurnoPayload) => Promise<ConfirmarTurnoResult>;
+
+  // HU-12: Consultar turnos por estado y fecha
+  consultarTurnos: (filtros?: FiltroTurnosParams) => ConsultarTurnosResult;
 }
 
 export const defaultSucursales: Sucursal[] = [
@@ -231,14 +236,63 @@ export const defaultInitialTurnos: Turno[] = [
     id: 'turno-juan-perez-1',
     nroTurno: 1001,
     vehiculoDominio: 'AB123CD',
+    patente: 'AB123CD',
     clienteId: 'cli-juan-perez',
     clienteNombre: 'Juan Pérez',
+    cliente: 'Juan Pérez',
     clienteDocumento: '30123456',
+    sucursal: 'Centro',
+    fecha: '15/11/2026',
+    hora: '11:00',
+    fechaHoraPropuesta: '2026-11-15T11:00:00',
+    motivoConsulta: 'Mantenimiento general',
+    motivo: 'Mantenimiento general',
+    esEmergencia: false,
+    estado: 'Confirmado',
+    fechaConfirmacion: '13/11/2026',
+    horaConfirmacion: '10:00',
+    medioConfirmacion: 'Mail',
+    notificacionEnviada: true,
+    notificacionCliente: null
+  },
+  {
+    id: 'turno-maria-gomez-1',
+    nroTurno: 1002,
+    vehiculoDominio: 'AC456EF',
+    patente: 'AC456EF',
+    clienteId: 'cli-maria-gomez',
+    clienteNombre: 'María Gómez',
+    cliente: 'María Gómez',
+    clienteDocumento: '28999888',
     sucursal: 'Centro',
     fecha: '15/11/2026',
     hora: '09:00',
     fechaHoraPropuesta: '2026-11-15T09:00:00',
-    motivoConsulta: 'Mantenimiento general',
+    motivoConsulta: 'Cambio de frenos',
+    motivo: 'Cambio de frenos',
+    esEmergencia: false,
+    estado: 'Confirmado',
+    fechaConfirmacion: '13/11/2026',
+    horaConfirmacion: '11:00',
+    medioConfirmacion: 'Mail',
+    notificacionEnviada: true,
+    notificacionCliente: null
+  },
+  {
+    id: 'turno-juan-perez-2',
+    nroTurno: 1003,
+    vehiculoDominio: 'AB123CD',
+    patente: 'AB123CD',
+    clienteId: 'cli-juan-perez',
+    clienteNombre: 'Juan Pérez',
+    cliente: 'Juan Pérez',
+    clienteDocumento: '30123456',
+    sucursal: 'Centro',
+    fecha: '16/11/2026',
+    hora: '10:00',
+    fechaHoraPropuesta: '2026-11-16T10:00:00',
+    motivoConsulta: 'Ruido en el motor',
+    motivo: 'Ruido en el motor',
     esEmergencia: false,
     estado: 'Solicitado',
     fechaConfirmacion: null,
@@ -380,7 +434,7 @@ const initialClients: Client[] = [
     telefono: '0351-156112233',
     localidad: 'Córdoba Capital',
     nivelFidelizacion: null,
-    vehicleCount: 0,
+    vehicleCount: 1,
     status: 'Activo'
   },
 ];
@@ -405,6 +459,21 @@ const initialVehicles: Vehicle[] = [
     kilometrajeActual: 45000, 
     clientId: 'cli-juan-perez', 
     clienteId: 'cli-juan-perez', 
+    status: 'Activo' 
+  },
+  { 
+    plate: 'AC456EF', 
+    dominio: 'AC456EF', 
+    brandModel: 'Peugeot 208 Feline 1.6', 
+    marca: 'Peugeot', 
+    modelo: '208 Feline 1.6', 
+    year: 2023, 
+    año: 2023, 
+    vin: '8ADPE208F3N0199111', 
+    mileage: 22000, 
+    kilometrajeActual: 22000, 
+    clientId: 'cli-maria-gomez', 
+    clienteId: 'cli-maria-gomez', 
     status: 'Activo' 
   },
 ];
@@ -1574,7 +1643,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // ============================================================
   const [turnos, setTurnos] = useState<Turno[]>(defaultInitialTurnos);
   const [sucursales] = useState<Sucursal[]>(defaultSucursales);
-  const [nextTurnoNumber, setNextTurnoNumber] = useState<number>(1002);
+  const [nextTurnoNumber, setNextTurnoNumber] = useState<number>(1004);
 
   const normalizeContextDate = (dateStr: string): { iso: string; ddmmyyyy: string; parsedDate: Date | null } => {
     if (!dateStr) return { iso: '', ddmmyyyy: '', parsedDate: null };
@@ -2045,6 +2114,90 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
   };
 
+  // ============================================================
+  // HU-12: Consultar turnos por estado, rango de fechas y sucursal
+  // ============================================================
+  const consultarTurnos = (filtros: FiltroTurnosParams = {}): ConsultarTurnosResult => {
+    let resultado = [...turnos];
+
+    // 1. Filtro por Estado (combinable)
+    const rawEstado = String(filtros.estado || '').trim();
+    if (rawEstado && rawEstado.toLowerCase() !== 'todos' && rawEstado.toLowerCase() !== 'todas') {
+      resultado = resultado.filter(t => t.estado.trim().toLowerCase() === rawEstado.toLowerCase());
+    }
+
+    // 2. Filtro por Sucursal (combinable)
+    const rawSucursal = String(filtros.sucursal || '').trim();
+    if (rawSucursal && rawSucursal.toLowerCase() !== 'todas' && rawSucursal.toLowerCase() !== 'todos') {
+      resultado = resultado.filter(t => t.sucursal.trim().toLowerCase() === rawSucursal.toLowerCase());
+    }
+
+    // 3. Filtro por Rango de Fechas (combinable)
+    const rawDesde = String(filtros.fechaDesde || '').trim();
+    const rawHasta = String(filtros.fechaHasta || '').trim();
+
+    if (rawDesde) {
+      const normDesde = normalizeContextDate(rawDesde);
+      if (normDesde.iso) {
+        resultado = resultado.filter(t => {
+          const tNorm = normalizeContextDate(t.fecha);
+          return tNorm.iso >= normDesde.iso;
+        });
+      }
+    }
+
+    if (rawHasta) {
+      const normHasta = normalizeContextDate(rawHasta);
+      if (normHasta.iso) {
+        resultado = resultado.filter(t => {
+          const tNorm = normalizeContextDate(t.fecha);
+          return tNorm.iso <= normHasta.iso;
+        });
+      }
+    }
+
+    // 4. Ordenar por fecha y hora (Criterio 3)
+    const shouldSort = filtros.ordenarPorFechaHora !== false;
+    const isDesc = filtros.ordenDireccion === 'desc';
+
+    if (shouldSort) {
+      resultado.sort((a, b) => {
+        const isoA = normalizeContextDate(a.fecha).iso;
+        const isoB = normalizeContextDate(b.fecha).iso;
+        const timeA = normalizeContextTime(a.hora);
+        const timeB = normalizeContextTime(b.hora);
+        const keyA = `${isoA}T${timeA}`;
+        const keyB = `${isoB}T${timeB}`;
+        if (keyA < keyB) return isDesc ? 1 : -1;
+        if (keyA > keyB) return isDesc ? -1 : 1;
+        return 0;
+      });
+    }
+
+    // 5. Enriquecer campos del listado (Criterio 2: cliente, patente, motivo de consulta, fecha, hora y estado)
+    const mapped = resultado.map(t => ({
+      ...t,
+      cliente: t.clienteNombre || t.cliente || 'Cliente',
+      clienteNombre: t.clienteNombre || t.cliente || 'Cliente',
+      patente: t.vehiculoDominio || t.patente || '',
+      vehiculoDominio: t.vehiculoDominio || t.patente || '',
+      motivo: t.motivoConsulta || t.motivo || '',
+      motivoConsulta: t.motivoConsulta || t.motivo || '',
+      fecha: normalizeContextDate(t.fecha).ddmmyyyy || t.fecha,
+      hora: normalizeContextTime(t.hora) || t.hora
+    }));
+
+    const mensaje = mapped.length === 0
+      ? 'No se encontraron turnos para los filtros seleccionados'
+      : `Se encontraron ${mapped.length} turnos`;
+
+    return {
+      turnos: mapped,
+      total: mapped.length,
+      mensaje
+    };
+  };
+
   return (
     <WorkshopContext.Provider value={{
       isDark,
@@ -2088,7 +2241,8 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       getAvailableHours,
       consultarDisponibilidad,
       registerTurno,
-      confirmarTurno
+      confirmarTurno,
+      consultarTurnos
     }}>
       {children}
     </WorkshopContext.Provider>

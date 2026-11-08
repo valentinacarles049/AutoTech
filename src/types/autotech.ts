@@ -149,14 +149,17 @@ export interface Turno {
   id: string;
   nroTurno: number; // Número de turno correlativo generado por el sistema
   vehiculoDominio: string; // Relación 1..* con Vehículo (patente)
+  patente?: string; // Alias para listado HU-12
   clienteId?: string;
   clienteNombre?: string;
+  cliente?: string; // Alias para listado HU-12
   clienteDocumento?: string;
   sucursal: string; // ej: "Centro"
   fecha: string; // ej: "15/11/2026"
   hora: string; // ej: "09:00"
   fechaHoraPropuesta: string;
   motivoConsulta: string;
+  motivo?: string; // Alias para listado HU-12
   esEmergencia: boolean;
   estado: TurnoEstadoNombre;
   estadoTurnoId?: string; // Relación 1..1 con EstadoTurno
@@ -174,6 +177,22 @@ export interface Turno {
     destinatario?: string;
     mensaje: string;
   } | null;
+}
+
+// HU-12: Consultar turnos por estado y fecha
+export interface FiltroTurnosParams {
+  estado?: string;
+  fechaDesde?: string;
+  fechaHasta?: string;
+  sucursal?: string;
+  ordenarPorFechaHora?: boolean;
+  ordenDireccion?: 'asc' | 'desc';
+}
+
+export interface ConsultarTurnosResult {
+  turnos: Turno[];
+  total: number;
+  mensaje: string;
 }
 
 export interface ConfirmarTurnoPayload {

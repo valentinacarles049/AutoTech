@@ -21,7 +21,9 @@ import {
   Mail,
   MessageSquare,
   Send,
-  CheckCheck
+  CheckCheck,
+  ArrowUpDown,
+  RotateCcw
 } from 'lucide-react';
 import { useWorkshop } from '../context/WorkshopContext';
 import { Turno, Vehicle, Client, DisponibilidadHorariaResult, ConfirmarTurnoResult } from '../types/autotech';
@@ -44,11 +46,31 @@ export const RecepcionScreen: React.FC = () => {
     getAvailableHours,
     consultarDisponibilidad,
     registerTurno,
-    confirmarTurno
+    confirmarTurno,
+    consultarTurnos
   } = useWorkshop();
 
-  // Tab activo dentro del módulo de recepción (HU-09, HU-10, HU-11)
-  const [activeTab, setActiveTab] = useState<'nuevo-turno' | 'disponibilidad' | 'confirmar-turno' | 'agenda' | 'presupuesto'>('nuevo-turno');
+  // Tab activo dentro del módulo de recepción (HU-09, HU-10, HU-11, HU-12)
+  const [activeTab, setActiveTab] = useState<'nuevo-turno' | 'disponibilidad' | 'confirmar-turno' | 'agenda' | 'presupuesto'>('agenda');
+
+  // Estados para HU-12: Consultar turnos filtrando por estado, rango de fechas y sucursal
+  const [filtroEstado, setFiltroEstado] = useState<string>('Todos');
+  const [filtroSucursal, setFiltroSucursal] = useState<string>('Centro');
+  const [filtroFechaDesde, setFiltroFechaDesde] = useState<string>('2026-11-15');
+  const [filtroFechaHasta, setFiltroFechaHasta] = useState<string>('2026-11-16');
+  const [ordenarFechaHora, setOrdenarFechaHora] = useState<boolean>(true);
+  const [ordenDireccion, setOrdenDireccion] = useState<'asc' | 'desc'>('asc');
+
+  const resultadoConsultaTurnos = useMemo(() => {
+    return consultarTurnos({
+      estado: filtroEstado,
+      sucursal: filtroSucursal,
+      fechaDesde: filtroFechaDesde,
+      fechaHasta: filtroFechaHasta,
+      ordenarPorFechaHora: ordenarFechaHora,
+      ordenDireccion
+    });
+  }, [consultarTurnos, filtroEstado, filtroSucursal, filtroFechaDesde, filtroFechaHasta, ordenarFechaHora, ordenDireccion, turnos]);
 
   // Estados para HU-10: Consultar disponibilidad horaria
   const [dispSucursal, setDispSucursal] = useState<string>(() => sucursales[0]?.nombre || 'Centro');
@@ -436,8 +458,8 @@ export const RecepcionScreen: React.FC = () => {
               : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
           }`}
         >
-          <Calendar className="w-4 h-4" />
-          <span>Agenda de Turnos Registrados ({turnos.length})</span>
+          <ListFilter className="w-4 h-4" />
+          <span>HU-12: Consultar Turnos ({turnos.length})</span>
         </button>
 
         <button
@@ -1195,129 +1217,297 @@ export const RecepcionScreen: React.FC = () => {
       )}
 
       {/* ============================================================ */}
-      {/* VISTA 2: AGENDA DE TURNOS REGISTRADOS */}
+      {/* VISTA 2: HU-12 CONSULTAR TURNOS POR ESTADO, FECHA Y SUCURSAL */}
       {/* ============================================================ */}
       {activeTab === 'agenda' && (
-        <div className="card-surface rounded-2xl p-5 shadow-sm space-y-4 animate-in fade-in duration-200">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200 dark:border-[#3A3A48]">
-            <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
-              <Calendar className="w-4 h-4 text-red-600" />
-              <span>Agenda de Turnos Registrados en Taller</span>
-            </h2>
-            <span className="text-xs text-slate-500">
-              Total registrados: <strong>{turnos.length}</strong>
-            </span>
+        <div className="space-y-6 animate-in fade-in duration-200">
+          {/* Panel de Filtros Combinables y Ordenamiento (HU-12 CA 1 y CA 3) */}
+          <div className="card-surface rounded-2xl p-5 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-[#3A3A48]">
+              <div>
+                <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+                  <ListFilter className="w-4 h-4 text-red-600" />
+                  <span>HU-12: Consultar Turnos por Estado, Fecha y Sucursal</span>
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Filtros combinables y ordenamiento cronológico por fecha y hora para organizar la atención del día.
+                </p>
+              </div>
+
+              {/* Botones rápidos para probar los escenarios BDD */}
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFiltroEstado('Confirmado');
+                    setFiltroFechaDesde('2026-11-15');
+                    setFiltroFechaHasta('2026-11-16');
+                    setFiltroSucursal('Centro');
+                    setOrdenarFechaHora(true);
+                    setOrdenDireccion('asc');
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 transition-colors"
+                >
+                  ⚡ Escenario 1: Confirmados (15/11 al 16/11)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFiltroEstado('Cancelado');
+                    setFiltroFechaDesde('2026-11-15');
+                    setFiltroFechaHasta('2026-11-16');
+                    setFiltroSucursal('Centro');
+                    setOrdenarFechaHora(true);
+                    setOrdenDireccion('asc');
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 transition-colors"
+                >
+                  ⚡ Escenario 2: Cancelados (Sin resultados)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFiltroEstado('Todos');
+                    setFiltroFechaDesde('');
+                    setFiltroFechaHasta('');
+                    setFiltroSucursal('Todas');
+                    setOrdenarFechaHora(true);
+                    setOrdenDireccion('asc');
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center space-x-1 transition-colors"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Ver todos</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Grilla de controles de filtrado (Criterio 1: estado, rango de fechas y sucursal) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
+              {/* 1. Estado */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Estado del Turno
+                </label>
+                <select
+                  value={filtroEstado}
+                  onChange={(e) => setFiltroEstado(e.target.value)}
+                  className="app-input w-full px-3 py-2 text-xs font-bold cursor-pointer"
+                >
+                  <option value="Todos">Todos los estados</option>
+                  <option value="Confirmado">Confirmado</option>
+                  <option value="Solicitado">Solicitado</option>
+                  <option value="En Taller">En Taller</option>
+                  <option value="Cancelado">Cancelado</option>
+                </select>
+              </div>
+
+              {/* 2. Fecha Desde */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Fecha Desde
+                </label>
+                <input
+                  type="date"
+                  value={filtroFechaDesde}
+                  onChange={(e) => setFiltroFechaDesde(e.target.value)}
+                  className="app-input w-full px-3 py-2 text-xs font-mono font-bold"
+                />
+              </div>
+
+              {/* 3. Fecha Hasta */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Fecha Hasta
+                </label>
+                <input
+                  type="date"
+                  value={filtroFechaHasta}
+                  onChange={(e) => setFiltroFechaHasta(e.target.value)}
+                  className="app-input w-full px-3 py-2 text-xs font-mono font-bold"
+                />
+              </div>
+
+              {/* 4. Sucursal */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Sucursal
+                </label>
+                <select
+                  value={filtroSucursal}
+                  onChange={(e) => setFiltroSucursal(e.target.value)}
+                  className="app-input w-full px-3 py-2 text-xs font-bold cursor-pointer"
+                >
+                  <option value="Todas">Todas las sucursales</option>
+                  {sucursales.map(s => (
+                    <option key={s.id} value={s.nombre}>
+                      {s.nombre}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 5. Ordenar por Fecha y Hora (Criterio 3) */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Ordenar por Fecha y Hora
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!ordenarFechaHora) {
+                      setOrdenarFechaHora(true);
+                      setOrdenDireccion('asc');
+                    } else {
+                      setOrdenDireccion(prev => prev === 'asc' ? 'desc' : 'asc');
+                    }
+                  }}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-[#3A3A48] bg-slate-50 dark:bg-[#1A1A22] hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center justify-between transition-colors"
+                >
+                  <span className="flex items-center space-x-1.5">
+                    <ArrowUpDown className="w-3.5 h-3.5 text-red-600" />
+                    <span>{ordenDireccion === 'asc' ? 'Fecha y Hora (Asc)' : 'Fecha y Hora (Desc)'}</span>
+                  </span>
+                  <span className="text-[10px] font-mono text-red-600 font-black">
+                    {ordenDireccion === 'asc' ? '09:00 → 11:00' : '11:00 → 09:00'}
+                  </span>
+                </button>
+              </div>
+            </div>
           </div>
 
-          {turnos.length === 0 ? (
-            <div className="py-12 text-center space-y-3">
-              <div className="w-12 h-12 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center mx-auto">
-                <Calendar className="w-6 h-6" />
-              </div>
-              <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                Aún no hay turnos registrados en la agenda. Utilice la pestaña "HU-09: Registrar Solicitud de Turno" para crear el primero.
-              </p>
-              <button
-                onClick={() => setActiveTab('nuevo-turno')}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold inline-flex items-center space-x-1.5"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>+ Registrar turno</span>
-              </button>
+          {/* Tabla de Resultados o Mensaje de Sin Coincidencias */}
+          <div className="card-surface rounded-2xl p-5 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200 dark:border-[#3A3A48]">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+                <Calendar className="w-4 h-4 text-red-600" />
+                <span>Listado de Turnos ({resultadoConsultaTurnos.total})</span>
+              </h3>
+              <span className="text-xs text-slate-500">
+                Mostrando <strong>{resultadoConsultaTurnos.total}</strong> de <strong>{turnos.length}</strong> turnos registrados
+              </span>
             </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 dark:bg-[#1A1A22] text-slate-500 dark:text-slate-400 uppercase font-bold text-[10px] border-b border-slate-200 dark:border-[#3A3A48]">
-                  <tr>
-                    <th className="px-4 py-3">N° Turno</th>
-                    <th className="px-4 py-3">Cliente</th>
-                    <th className="px-4 py-3">Vehículo</th>
-                    <th className="px-4 py-3">Sucursal</th>
-                    <th className="px-4 py-3">Fecha y Hora</th>
-                    <th className="px-4 py-3">Motivo de Consulta</th>
-                    <th className="px-4 py-3">Estado</th>
-                    <th className="px-4 py-3 text-center">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 dark:divide-[#3A3A48]">
-                  {turnos.map(t => (
-                    <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-[#202028]">
-                      <td className="px-4 py-3 font-mono font-black text-red-600">
-                        #{t.nroTurno}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="font-bold text-slate-900 dark:text-white">
-                          {t.clienteNombre || 'Cliente'}
+
+            {resultadoConsultaTurnos.total === 0 ? (
+              <div className="py-12 px-4 text-center space-y-3 rounded-xl border border-amber-500/30 bg-amber-500/10">
+                <div className="w-12 h-12 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto">
+                  <AlertCircle className="w-6 h-6" />
+                </div>
+                <p className="text-sm font-black text-amber-900 dark:text-amber-200">
+                  No se encontraron turnos para los filtros seleccionados
+                </p>
+                <p className="text-xs text-amber-800/80 dark:text-amber-300/80">
+                  Intente modificar el estado, el rango de fechas o la sucursal seleccionada.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 dark:bg-[#1A1A22] text-slate-500 dark:text-slate-400 uppercase font-bold text-[10px] border-b border-slate-200 dark:border-[#3A3A48]">
+                    <tr>
+                      <th className="px-4 py-3">Cliente</th>
+                      <th className="px-4 py-3">Patente</th>
+                      <th className="px-4 py-3">Motivo de Consulta</th>
+                      <th className="px-4 py-3">Sucursal</th>
+                      <th 
+                        className="px-4 py-3 cursor-pointer hover:text-red-600 select-none"
+                        onClick={() => setOrdenDireccion(prev => prev === 'asc' ? 'desc' : 'asc')}
+                      >
+                        <div className="flex items-center space-x-1">
+                          <span>Fecha</span>
+                          <ArrowUpDown className="w-3 h-3 text-red-600" />
                         </div>
-                        <div className="text-[10px] font-mono text-slate-400">
-                          {t.clienteDocumento}
+                      </th>
+                      <th 
+                        className="px-4 py-3 cursor-pointer hover:text-red-600 select-none"
+                        onClick={() => setOrdenDireccion(prev => prev === 'asc' ? 'desc' : 'asc')}
+                      >
+                        <div className="flex items-center space-x-1">
+                          <span>Hora</span>
+                          <ArrowUpDown className="w-3 h-3 text-red-600" />
                         </div>
-                      </td>
-                      <td className="px-4 py-3 font-mono font-bold text-slate-800 dark:text-slate-200">
-                        {t.vehiculoDominio}
-                      </td>
-                      <td className="px-4 py-3 font-medium">
-                        Sucursal {t.sucursal}
-                      </td>
-                      <td className="px-4 py-3 font-mono">
-                        <div>{t.fecha}</div>
-                        <div className="text-[10px] text-slate-400 font-bold">{t.hora} hs</div>
-                      </td>
-                      <td className="px-4 py-3 text-slate-700 dark:text-slate-300 max-w-xs truncate">
-                        {t.motivoConsulta}
-                      </td>
-                      <td className="px-4 py-3">
-                        {t.estado === 'Confirmado' ? (
-                          <div className="space-y-1">
-                            <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800">
+                      </th>
+                      <th className="px-4 py-3">Estado</th>
+                      <th className="px-4 py-3 text-center">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 dark:divide-[#3A3A48]">
+                    {resultadoConsultaTurnos.turnos.map(t => (
+                      <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-[#202028]">
+                        <td className="px-4 py-3">
+                          <div className="font-bold text-slate-900 dark:text-white">
+                            {t.clienteNombre || t.cliente || 'Cliente'}
+                          </div>
+                          <div className="text-[10px] font-mono text-slate-400">
+                            Turno #{t.nroTurno} {t.clienteDocumento ? `• DNI ${t.clienteDocumento}` : ''}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono font-bold text-red-600">
+                            {t.vehiculoDominio || t.patente}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-slate-700 dark:text-slate-300 max-w-xs">
+                          {t.motivoConsulta || t.motivo}
+                        </td>
+                        <td className="px-4 py-3 font-medium">
+                          {t.sucursal}
+                        </td>
+                        <td className="px-4 py-3 font-mono font-bold text-slate-900 dark:text-white">
+                          {t.fecha}
+                        </td>
+                        <td className="px-4 py-3 font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                          {t.hora}
+                        </td>
+                        <td className="px-4 py-3">
+                          {t.estado === 'Confirmado' ? (
+                            <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800">
                               <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
                               <span>Confirmado</span>
                             </span>
-                            {t.fechaConfirmacion && (
-                              <div className="text-[9px] text-slate-500 dark:text-slate-400 font-mono">
-                                {t.fechaConfirmacion} {t.horaConfirmacion} hs ({t.medioConfirmacion})
-                              </div>
+                          ) : t.estado === 'Cancelado' ? (
+                            <span className="badge-gray text-[10px] px-2.5 py-0.5 font-bold">
+                              Cancelado
+                            </span>
+                          ) : (
+                            <span className="badge-yellow text-[10px] px-2.5 py-0.5 font-bold">
+                              {t.estado}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <div className="flex items-center justify-center space-x-1.5">
+                            {t.estado === 'Solicitado' && (
+                              <button
+                                onClick={() => {
+                                  setConfirmTurnoId(t.id);
+                                  setActiveTab('confirmar-turno');
+                                }}
+                                className="px-2.5 py-1 bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-600 dark:text-emerald-400 rounded-lg text-[10px] font-bold border border-emerald-600/20 transition-colors flex items-center space-x-1"
+                                title="Confirmar turno (HU-11)"
+                              >
+                                <CheckCheck className="w-3 h-3" />
+                                <span>Confirmar</span>
+                              </button>
                             )}
-                          </div>
-                        ) : (
-                          <span className="badge-yellow text-[10px] px-2 py-0.5 font-bold">
-                            {t.estado}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <div className="flex items-center justify-center space-x-1.5">
-                          {t.estado === 'Solicitado' && (
                             <button
                               onClick={() => {
-                                setConfirmTurnoId(t.id);
-                                setActiveTab('confirmar-turno');
+                                selectVehicleForReception(t.vehiculoDominio);
+                                setActiveTab('presupuesto');
                               }}
-                              className="px-2.5 py-1 bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-600 dark:text-emerald-400 rounded-lg text-[10px] font-bold border border-emerald-600/20 transition-colors flex items-center space-x-1"
-                              title="Confirmar turno (HU-11)"
+                              className="px-2.5 py-1 bg-red-600/10 hover:bg-red-600/20 text-red-600 rounded-lg text-[10px] font-bold border border-red-600/20 transition-colors"
                             >
-                              <CheckCheck className="w-3 h-3" />
-                              <span>Confirmar</span>
+                              Presupuesto
                             </button>
-                          )}
-                          <button
-                            onClick={() => {
-                              selectVehicleForReception(t.vehiculoDominio);
-                              setActiveTab('presupuesto');
-                            }}
-                            className="px-2.5 py-1 bg-red-600/10 hover:bg-red-600/20 text-red-600 rounded-lg text-[10px] font-bold border border-red-600/20 transition-colors"
-                          >
-                            Generar Presupuesto
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

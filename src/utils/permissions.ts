@@ -34,7 +34,8 @@ export const ROLE_PERMISSIONS: Record<RoleName, ScreenId[]> = {
   ],
   'Responsable de Taller (jefe de taller)': [
     'dashboard',
-    'supervision'
+    'supervision',
+    'recepcion'
   ],
   'Responsable de Inventario': [
     'inventario'
@@ -83,7 +84,7 @@ export const getAllowedScreens = (role?: string | null): ScreenId[] => {
 
   // 5. Responsable de Taller (jefe de taller)
   if (normalized.includes('taller') || normalized.includes('jefe')) {
-    return ['dashboard', 'supervision'];
+    return ['dashboard', 'supervision', 'recepcion'];
   }
 
   // 6. Responsable de Inventario
