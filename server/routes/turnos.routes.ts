@@ -11,6 +11,11 @@ import {
   registrarAusenciaTurno,
   testCleanupTurnos 
 } from '../controllers/turnos.controller';
+import {
+  registrarPresupuesto,
+  modificarPresupuesto,
+  verificarVencimientoPresupuesto
+} from '../controllers/presupuestos.controller';
 import { requireAuth, requireRole } from '../middleware/auth.middleware';
 
 const router = Router();
@@ -38,6 +43,12 @@ router.post('/presentacion', finalizarTurno);
 router.post('/ausente', registrarAusenciaTurno);
 router.post('/:id/ausente', registrarAusenciaTurno);
 router.post('/verificar-ausencias', registrarAusenciaTurno);
+
+// HU-19: Registrar presupuesto de un turno finalizado
+router.post('/presupuesto', registrarPresupuesto);
+router.post('/:id/presupuesto', registrarPresupuesto);
+router.put('/:id/presupuesto', modificarPresupuesto);
+router.post('/presupuesto/verificar-vencimiento', verificarVencimientoPresupuesto);
 
 // HU-12: Consultar / Listar turnos filtrando por estado, fecha y sucursal
 router.get('/', listarTurnos);

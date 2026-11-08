@@ -27,7 +27,17 @@ import {
   UserX
 } from 'lucide-react';
 import { useWorkshop } from '../context/WorkshopContext';
-import { Turno, Vehicle, Client, DisponibilidadHorariaResult, ConfirmarTurnoResult, FinalizarTurnoResult } from '../types/autotech';
+import { 
+  Turno, 
+  Vehicle, 
+  Client, 
+  DisponibilidadHorariaResult, 
+  ConfirmarTurnoResult, 
+  FinalizarTurnoResult,
+  DetallePresupuesto,
+  Presupuesto,
+  RegistrarPresupuestoResult
+} from '../types/autotech';
 
 export const RecepcionScreen: React.FC = () => {
   const { 
@@ -50,11 +60,15 @@ export const RecepcionScreen: React.FC = () => {
     confirmarTurno,
     consultarTurnos,
     finalizarTurno,
-    registrarAusenciaTurno
+    registrarAusenciaTurno,
+    presupuestos,
+    registrarPresupuesto,
+    modificarPresupuesto,
+    verificarVencimientoPresupuesto
   } = useWorkshop();
 
-  // Tab activo dentro del módulo de recepción (HU-09, HU-10, HU-11, HU-12, HU-15)
-  const [activeTab, setActiveTab] = useState<'nuevo-turno' | 'disponibilidad' | 'confirmar-turno' | 'agenda' | 'finalizar-turno' | 'presupuesto'>('finalizar-turno');
+  // Tab activo dentro del módulo de recepción (HU-09, HU-10, HU-11, HU-12, HU-15, HU-19)
+  const [activeTab, setActiveTab] = useState<'nuevo-turno' | 'disponibilidad' | 'confirmar-turno' | 'agenda' | 'finalizar-turno' | 'presupuesto'>('presupuesto');
 
   // Estados para HU-12: Consultar turnos filtrando por estado, rango de fechas y sucursal
   const [filtroEstado, setFiltroEstado] = useState<string>('Todos');
@@ -447,30 +461,195 @@ export const RecepcionScreen: React.FC = () => {
     }
   };
 
-  // Acciones de presupuesto
+  // Acciones de presupuesto (HU-19: Registrar presupuesto de reparación)
   const activeVehicle = vehicles.find(v => v.plate === selectedReceptionVehicle || selectedReceptionVehicle.includes(v.plate)) || vehicles[0];
   const associatedClient = clients.find(c => c.id === activeVehicle?.clientId) || clients[0];
 
-  const totalLabor = budgetServices.reduce((acc, curr) => acc + curr.subtotal, 0);
-  const estimatedParts = 154500;
-  const iva = Math.round((totalLabor + estimatedParts) * 0.21);
-  const grandTotal = totalLabor + estimatedParts + iva;
+  const [presTurnoId, setPresTurnoId] = useState<string>(() => {
+    const fin = turnos.find(t => t.estado === 'Finalizado') || turnos.find(t => t.vehiculoDominio === 'AB123CD') || turnos[0];
+    return fin?.id || '';
+  });
+  const [presItems, setPresItems] = useState<DetallePresupuesto[]>([
+    { id: 'item-1', descripcion: 'Aceite 5W30 (litro)', cantidad: 4, precioUnitario: 9000, subtotal: 36000 },
+    { id: 'item-2', descripcion: 'Filtro de aceite', cantidad: 1, precioUnitario: 8000, subtotal: 8000 },
+    { id: 'item-3', descripcion: 'Mano de obra', cantidad: 1, precioUnitario: 15000, subtotal: 15000 }
+  ]);
+  const [presValidezDias, setPresValidezDias] = useState<number>(15);
+  const [presDescuentoPct, setPresDescuentoPct] = useState<number>(10);
+  const [presFechaEmision, setPresFechaEmision] = useState<string>('15/11/2026');
+  const [presFechaVencimientoSim, setPresFechaVencimientoSim] = useState<string>('01/12/2026');
+  const [newItemDesc, setNewItemDesc] = useState<string>('');
+  const [newItemCant, setNewItemCant] = useState<number>(1);
+  const [newItemPrecio, setNewItemPrecio] = useState<number>(10000);
+  const [presError, setPresError] = useState<string | null>(null);
+  const [presSuccess, setPresSuccess] = useState<string | null>(null);
+  const [currentPresupuesto, setCurrentPresupuesto] = useState<Presupuesto | null>(null);
+  const [isSavingPresupuesto, setIsSavingPresupuesto] = useState<boolean>(false);
 
-  const handleAddService = (e: React.FormEvent) => {
+  const selectedPresTurno = useMemo(() => {
+    return turnos.find(t => t.id === presTurnoId) || turnos[0];
+  }, [turnos, presTurnoId]);
+
+  // Sincronizar con presupuesto ya emitido para el turno seleccionado
+  useEffect(() => {
+    if (!selectedPresTurno) return;
+    const found = presupuestos.find(p => p.turnoId === selectedPresTurno.id);
+    if (found) {
+      setCurrentPresupuesto(found);
+      setPresItems(found.items);
+      setPresValidezDias(found.validezDias);
+      setPresDescuentoPct(found.descuentoPorcentaje);
+      setPresFechaEmision(found.fechaEmision);
+    } else {
+      setCurrentPresupuesto(null);
+    }
+  }, [selectedPresTurno, presupuestos]);
+
+  const isPresupuestoVencido = currentPresupuesto !== null && currentPresupuesto.estado !== 'Emitido';
+
+  // Cálculos reactivos de DetallePresupuesto (Criterios 1 y 2)
+  const calculatedSubtotal = useMemo(() => {
+    return presItems.reduce((acc, item) => acc + Math.round(item.cantidad * item.precioUnitario * 100) / 100, 0);
+  }, [presItems]);
+
+  const calculatedDescuento = useMemo(() => {
+    const pct = Math.max(0, Number(presDescuentoPct) || 0);
+    return Math.round(calculatedSubtotal * (pct / 100) * 100) / 100;
+  }, [calculatedSubtotal, presDescuentoPct]);
+
+  const calculatedTotal = useMemo(() => {
+    return Math.round((calculatedSubtotal - calculatedDescuento) * 100) / 100;
+  }, [calculatedSubtotal, calculatedDescuento]);
+
+  const handleUpdatePresItem = (index: number, field: 'descripcion' | 'cantidad' | 'precioUnitario', value: string | number) => {
+    if (isPresupuestoVencido) return;
+    setPresItems(prev => prev.map((it, idx) => {
+      if (idx !== index) return it;
+      const updated = { ...it, [field]: field === 'descripcion' ? String(value) : Number(value) };
+      updated.subtotal = Math.round(updated.cantidad * updated.precioUnitario * 100) / 100;
+      return updated;
+    }));
+  };
+
+  const handleRemovePresItem = (index: number) => {
+    if (isPresupuestoVencido) return;
+    setPresItems(prev => prev.filter((_, idx) => idx !== index));
+  };
+
+  const handleAddPresItem = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newServiceName) return;
-    addBudgetService({
-      description: newServiceName,
-      estimatedHours: Number(newServiceHours),
-      hourlyRate: Number(newServiceRate),
-    });
-    setNewServiceName('');
+    if (isPresupuestoVencido) return;
+    if (!newItemDesc.trim() || newItemCant <= 0 || newItemPrecio < 0) return;
+    const sub = Math.round(newItemCant * newItemPrecio * 100) / 100;
+    setPresItems(prev => [
+      ...prev,
+      {
+        id: `item-${Date.now()}`,
+        descripcion: newItemDesc.trim(),
+        cantidad: Number(newItemCant),
+        precioUnitario: Number(newItemPrecio),
+        subtotal: sub
+      }
+    ]);
+    setNewItemDesc('');
+    setNewItemCant(1);
+    setNewItemPrecio(10000);
     setIsAddingService(false);
   };
 
-  const handleEmitBudget = () => {
-    setToastMessage('¡Presupuesto emitido y orden de servicio generada exitosamente!');
-    setTimeout(() => setToastMessage(null), 3500);
+  const handleRegistrarPresupuesto = async () => {
+    setPresError(null);
+    setPresSuccess(null);
+
+    if (!selectedPresTurno) {
+      setPresError('Seleccione un turno para registrar el presupuesto');
+      return;
+    }
+
+    if (isPresupuestoVencido) {
+      setPresError(`El presupuesto se encuentra en estado "${currentPresupuesto?.estado}" y ya no se puede modificar`);
+      return;
+    }
+
+    setIsSavingPresupuesto(true);
+    try {
+      // Si el turno aún está en estado "Confirmado", finalizarlo primero o informar
+      let res: RegistrarPresupuestoResult;
+      if (currentPresupuesto) {
+        res = await modificarPresupuesto({
+          presupuestoId: currentPresupuesto.id,
+          turnoId: selectedPresTurno.id,
+          validezDias: presValidezDias,
+          descuentoFidelizacionPorcentaje: presDescuentoPct,
+          items: presItems.map(it => ({
+            descripcion: it.descripcion,
+            cantidad: it.cantidad,
+            precioUnitario: it.precioUnitario
+          }))
+        });
+      } else {
+        res = await registrarPresupuesto({
+          turnoId: selectedPresTurno.id,
+          vehiculoDominio: selectedPresTurno.vehiculoDominio,
+          clienteNombre: selectedPresTurno.clienteNombre,
+          descuentoFidelizacionPorcentaje: presDescuentoPct,
+          validezDias: presValidezDias,
+          fechaEmision: presFechaEmision,
+          items: presItems.map(it => ({
+            descripcion: it.descripcion,
+            cantidad: it.cantidad,
+            precioUnitario: it.precioUnitario
+          }))
+        });
+      }
+
+      if (res.success && res.presupuesto) {
+        setCurrentPresupuesto(res.presupuesto);
+        setPresSuccess(
+          `Presupuesto ${res.presupuesto.nroPresupuesto} en estado "${res.presupuesto.estado}" • Subtotal: $${res.presupuesto.subtotal.toLocaleString()} • Descuento: $${res.presupuesto.descuento.toLocaleString()} • Total: $${res.presupuesto.total.toLocaleString()}`
+        );
+      } else {
+        setPresError(res.error || res.message || 'Error al registrar el presupuesto');
+      }
+    } catch (err: any) {
+      setPresError(err.message || 'Error al registrar el presupuesto');
+    } finally {
+      setIsSavingPresupuesto(false);
+    }
+  };
+
+  const handleVerificarVencimiento = async () => {
+    setPresError(null);
+    setPresSuccess(null);
+    if (!currentPresupuesto && !selectedPresTurno) {
+      setPresError('Primero debe registrar y emitir el presupuesto');
+      return;
+    }
+
+    setIsSavingPresupuesto(true);
+    try {
+      const res = await verificarVencimientoPresupuesto({
+        presupuestoId: currentPresupuesto?.id,
+        turnoId: selectedPresTurno?.id,
+        fechaActual: presFechaVencimientoSim,
+        respuestaCliente: null
+      });
+
+      if (res.success && res.presupuesto) {
+        setCurrentPresupuesto(res.presupuesto);
+        if (res.presupuesto.estado === 'Vencido') {
+          setPresSuccess(
+            `Al llegar el ${presFechaVencimientoSim} sin respuesta del cliente, el presupuesto pasó al estado "Vencido" y ya no se puede modificar.`
+          );
+        } else {
+          setPresSuccess(res.message);
+        }
+      } else {
+        setPresError(res.error || 'No se pudo verificar el vencimiento');
+      }
+    } finally {
+      setIsSavingPresupuesto(false);
+    }
   };
 
   return (
@@ -573,7 +752,7 @@ export const RecepcionScreen: React.FC = () => {
           }`}
         >
           <FileCheck className="w-4 h-4" />
-          <span>Presupuesto de Taller</span>
+          <span>HU-19: Registrar Presupuesto</span>
         </button>
       </div>
 
@@ -1847,134 +2026,223 @@ export const RecepcionScreen: React.FC = () => {
       )}
 
       {/* ============================================================ */}
-      {/* VISTA 3: PRESUPUESTADOR DE TALLER (EXISTENTE) */}
+      {/* VISTA HU-19: REGISTRAR PRESUPUESTO DE REPARACIÓN */}
       {/* ============================================================ */}
       {activeTab === 'presupuesto' && (
         <div className="space-y-6 animate-in fade-in duration-200">
-          
-          {/* DATOS DEL CLIENTE Y VEHÍCULO INGRESANTE */}
+          {/* CABECERA Y ESCENARIOS BDD HU-19 */}
           <div className="card-surface rounded-2xl p-5 shadow-sm space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-[#3A3A48]">
-              <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-red-600 inline-block" />
-                <span>Datos del Cliente y Vehículo Ingresante</span>
-              </h2>
-              <span className="text-xs text-slate-400">
-                Ficha de Recepción
-              </span>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-[#3A3A48]">
+              <div>
+                <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+                  <FileCheck className="w-5 h-5 text-red-600" />
+                  <span>HU-19: Registrar Presupuesto de Reparación (DetallePresupuesto)</span>
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Como responsable de recepción, quiero registrar el presupuesto de un turno finalizado, para informar al cliente el costo de la reparación.
+                </p>
+              </div>
+
+              {/* Estado actual del presupuesto */}
+              <div className="flex items-center space-x-2">
+                {currentPresupuesto ? (
+                  <span className={`px-3 py-1 rounded-full text-xs font-black border ${
+                    currentPresupuesto.estado === 'Emitido'
+                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-400'
+                      : 'bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-300 border-red-400'
+                  }`}>
+                    Estado: {currentPresupuesto.estado} {currentPresupuesto.estado === 'Vencido' ? '(No modificable)' : '(Modificable)'}
+                  </span>
+                ) : (
+                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                    Pendiente de Emisión
+                  </span>
+                )}
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
-              {/* 1. SELECTOR VEHÍCULO */}
+            {/* Botones rápidos para probar los Escenarios BDD de HU-19 */}
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={async () => {
+                  setPresError(null);
+                  setPresSuccess(null);
+                  const tJuan = turnos.find(t => t.vehiculoDominio === 'AB123CD' && t.fecha === '15/11/2026') || turnos[0];
+                  if (tJuan) {
+                    setPresTurnoId(tJuan.id);
+                    if (tJuan.estado !== 'Finalizado') {
+                      await finalizarTurno({
+                        turnoId: tJuan.id,
+                        vehiculoDominio: tJuan.vehiculoDominio,
+                        fechaActual: '15/11/2026',
+                        horaActual: '09:00',
+                        vehiculoPresentado: true
+                      });
+                    }
+                  }
+                  setPresDescuentoPct(10);
+                  setPresValidezDias(15);
+                  setPresFechaEmision('15/11/2026');
+                  setPresItems([
+                    { id: 'item-1', descripcion: 'Aceite 5W30 (litro)', cantidad: 4, precioUnitario: 9000, subtotal: 36000 },
+                    { id: 'item-2', descripcion: 'Filtro de aceite', cantidad: 1, precioUnitario: 8000, subtotal: 8000 },
+                    { id: 'item-3', descripcion: 'Mano de obra', cantidad: 1, precioUnitario: 15000, subtotal: 15000 }
+                  ]);
+                }}
+                className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 transition-colors"
+              >
+                ⚡ Cargar Escenario 1: Juan Pérez (AB123CD • Finalizado • 10% Fidelización • Validez 15 días)
+              </button>
+
+              <button
+                type="button"
+                onClick={handleVerificarVencimiento}
+                disabled={!currentPresupuesto}
+                className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 disabled:opacity-40 transition-colors"
+              >
+                ⚡ Escenario 2: Simular llegada del 01/12/2026 sin respuesta (Pasar a "Vencido")
+              </button>
+            </div>
+
+            {/* Mensajes de confirmación o error */}
+            {presError && (
+              <div className="p-4 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 text-red-700 dark:text-red-400 text-xs flex items-start space-x-3">
+                <AlertCircle className="w-5 h-5 shrink-0 mt-0.5 text-red-600" />
+                <div>
+                  <p className="font-bold text-sm">{presError}</p>
+                </div>
+              </div>
+            )}
+
+            {presSuccess && (
+              <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 text-emerald-800 dark:text-emerald-300 text-xs flex items-start space-x-3">
+                <CheckCircle2 className="w-5 h-5 shrink-0 mt-0.5 text-emerald-600" />
+                <div>
+                  <p className="font-bold text-sm">{presSuccess}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Selección de Turno Finalizado, Descuento de Fidelización y Días de Validez */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-2">
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center justify-between">
-                  <span className="flex items-center space-x-1.5">
-                    <Car className="w-3.5 h-3.5 text-red-600" />
-                    <span>Vehículo <span className="text-red-600 font-bold">*</span></span>
-                  </span>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  1. Turno Asociado <span className="text-red-600">*</span>
                 </label>
                 <select
-                  value={activeVehicle.plate}
-                  onChange={(e) => selectVehicleForReception(e.target.value)}
-                  className="app-input w-full px-3 py-2.5 font-medium cursor-pointer"
+                  value={presTurnoId}
+                  onChange={(e) => setPresTurnoId(e.target.value)}
+                  className="app-input w-full px-3 py-2 text-xs font-bold cursor-pointer"
                 >
-                  {vehicles.map(v => (
-                    <option key={v.plate} value={v.plate}>
-                      {v.plate} - {v.brandModel} ({v.year})
+                  {turnos.map(t => (
+                    <option key={t.id} value={t.id}>
+                      #{t.nroTurno} • {t.vehiculoDominio} - {t.clienteNombre || t.cliente} ({t.estado})
                     </option>
                   ))}
                 </select>
               </div>
 
-              {/* 2. CLIENTE ASOCIADO */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center justify-between">
-                  <span className="flex items-center space-x-1.5">
-                    <UserCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                    <span>Cliente Asociado</span>
-                  </span>
-                  <span className="badge-green text-[9px] py-0 px-2 font-bold">
-                    ✓ Autoseleccionado
-                  </span>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  2. Fecha de Emisión
                 </label>
                 <input
                   type="text"
-                  readOnly
-                  value={`${associatedClient.name} (${associatedClient.cuitDni})`}
-                  className="app-input w-full px-3 py-2.5 font-semibold bg-slate-100/80 dark:bg-[#1A1A22] text-slate-800 dark:text-slate-100 border-slate-300 dark:border-[#3A3A48] cursor-default select-all"
+                  value={presFechaEmision}
+                  disabled={isPresupuestoVencido}
+                  onChange={(e) => setPresFechaEmision(e.target.value)}
+                  className="app-input w-full px-3 py-2 text-xs font-mono font-bold disabled:opacity-60"
                 />
               </div>
 
-              {/* 3. KILOMETRAJE */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center justify-between">
-                  <span className="flex items-center space-x-1.5">
-                    <Gauge className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Kilometraje <span className="text-red-600 font-bold">*</span></span>
-                  </span>
-                  <span className="text-[10px] text-slate-400 font-mono">Último: {activeVehicle.mileage.toLocaleString()} km</span>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  3. Validez (días) <span className="text-red-600">*</span>
                 </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    required
-                    value={mileageEntry}
-                    onChange={(e) => setMileageEntry(Number(e.target.value))}
-                    className="app-input w-full px-3 py-2.5 font-mono text-xs font-bold"
-                  />
-                  <span className="absolute right-3 top-2.5 text-xs text-slate-400 font-bold pointer-events-none">
-                    km
-                  </span>
-                </div>
+                <input
+                  type="number"
+                  min={1}
+                  value={presValidezDias}
+                  disabled={isPresupuestoVencido}
+                  onChange={(e) => setPresValidezDias(Number(e.target.value))}
+                  className="app-input w-full px-3 py-2 text-xs font-mono font-bold disabled:opacity-60"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  4. Descuento Fidelización (%)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={presDescuentoPct}
+                  disabled={isPresupuestoVencido}
+                  onChange={(e) => setPresDescuentoPct(Number(e.target.value))}
+                  className="app-input w-full px-3 py-2 text-xs font-mono font-bold disabled:opacity-60"
+                />
               </div>
             </div>
           </div>
 
-          {/* TABLA EDITABLE DE SERVICIOS */}
+          {/* TABLA DE ÍTEMS DE DETALLE (DetallePresupuesto del MODP) */}
           <div className="card-surface rounded-2xl p-5 shadow-sm space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-[#3A3A48]">
-              <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-red-600 inline-block" />
-                <span>Servicios y Mano de Obra a Presupuestar</span>
-              </h2>
-              <button
-                onClick={() => setIsAddingService(true)}
-                className="px-3 py-1.5 bg-red-600/10 hover:bg-red-600/20 text-red-600 border border-red-600/20 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>+ Agregar Servicio</span>
-              </button>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-red-600 inline-block" />
+                  <span>Ítems de Detalle del Presupuesto (DetallePresupuesto: Repuestos y Mano de Obra)</span>
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Cada ítem registra descripción, cantidad, precio unitario y subtotal (cantidad × precio unitario).
+                </p>
+              </div>
+
+              {!isPresupuestoVencido && (
+                <button
+                  type="button"
+                  onClick={() => setIsAddingService(true)}
+                  className="px-3 py-1.5 bg-red-600/10 hover:bg-red-600/20 text-red-600 border border-red-600/20 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Agregar Ítem</span>
+                </button>
+              )}
             </div>
 
-            {isAddingService && (
-              <form onSubmit={handleAddService} className="p-4 rounded-xl bg-slate-50 dark:bg-[#1E1E24] border border-red-500/30 grid grid-cols-1 sm:grid-cols-12 gap-3 items-end animate-in fade-in">
+            {isAddingService && !isPresupuestoVencido && (
+              <form onSubmit={handleAddPresItem} className="p-4 rounded-xl bg-slate-50 dark:bg-[#1E1E24] border border-red-500/30 grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
                 <div className="sm:col-span-6">
-                  <label className="block text-xs font-bold mb-1">Descripción del Servicio *</label>
+                  <label className="block text-xs font-bold mb-1">Descripción (Repuesto o Mano de obra) *</label>
                   <input
                     type="text"
                     required
-                    value={newServiceName}
-                    onChange={(e) => setNewServiceName(e.target.value)}
-                    placeholder="ej: Cambio de líquido refrigerante y termostato"
+                    value={newItemDesc}
+                    onChange={(e) => setNewItemDesc(e.target.value)}
+                    placeholder="ej: Filtro de aire / Mano de obra"
                     className="app-input w-full px-3 py-2 text-xs"
                   />
                 </div>
                 <div className="sm:col-span-2">
-                  <label className="block text-xs font-bold mb-1">Horas Est.</label>
+                  <label className="block text-xs font-bold mb-1">Cantidad *</label>
                   <input
                     type="number"
-                    step="0.5"
-                    value={newServiceHours}
-                    onChange={(e) => setNewServiceHours(Number(e.target.value))}
+                    min="1"
+                    step="1"
+                    value={newItemCant}
+                    onChange={(e) => setNewItemCant(Number(e.target.value))}
                     className="app-input w-full px-3 py-2 text-xs font-mono"
                   />
                 </div>
                 <div className="sm:col-span-2">
-                  <label className="block text-xs font-bold mb-1">Precio Hora ($)</label>
+                  <label className="block text-xs font-bold mb-1">Precio Unitario ($) *</label>
                   <input
                     type="number"
-                    value={newServiceRate}
-                    onChange={(e) => setNewServiceRate(Number(e.target.value))}
+                    min="0"
+                    value={newItemPrecio}
+                    onChange={(e) => setNewItemPrecio(Number(e.target.value))}
                     className="app-input w-full px-3 py-2 text-xs font-mono"
                   />
                 </div>
@@ -2000,38 +2268,54 @@ export const RecepcionScreen: React.FC = () => {
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 dark:bg-[#1A1A22] text-slate-500 dark:text-slate-400 uppercase font-bold text-[10px] border-b border-slate-200 dark:border-[#3A3A48]">
                   <tr>
-                    <th className="px-4 py-3">Item / Servicio</th>
-                    <th className="px-4 py-3 w-32">Horas Est.</th>
-                    <th className="px-4 py-3 w-36">Precio Hora</th>
-                    <th className="px-4 py-3 w-36 text-right">Subtotal</th>
+                    <th className="px-4 py-3">Descripción</th>
+                    <th className="px-4 py-3 w-32">Cantidad</th>
+                    <th className="px-4 py-3 w-40">Precio Unitario</th>
+                    <th className="px-4 py-3 w-40 text-right">Subtotal</th>
                     <th className="px-4 py-3 w-20 text-center">Acción</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-[#3A3A48]">
-                  {budgetServices.map((srv) => (
-                    <tr key={srv.id} className="hover:bg-slate-50 dark:hover:bg-[#202028]">
+                  {presItems.map((item, idx) => (
+                    <tr key={item.id || idx} className="hover:bg-slate-50 dark:hover:bg-[#202028]">
                       <td className="px-4 py-3 font-medium text-slate-900 dark:text-white">
-                        {srv.description}
+                        <input
+                          type="text"
+                          value={item.descripcion}
+                          disabled={isPresupuestoVencido}
+                          onChange={(e) => handleUpdatePresItem(idx, 'descripcion', e.target.value)}
+                          className="app-input w-full px-2.5 py-1 text-xs font-semibold disabled:opacity-60"
+                        />
                       </td>
                       <td className="px-4 py-3">
                         <input
                           type="number"
-                          step="0.5"
-                          value={srv.estimatedHours}
-                          onChange={(e) => updateBudgetService(srv.id, Number(e.target.value), srv.hourlyRate)}
-                          className="app-input w-24 px-2 py-1 text-center font-mono"
+                          min="1"
+                          value={item.cantidad}
+                          disabled={isPresupuestoVencido}
+                          onChange={(e) => handleUpdatePresItem(idx, 'cantidad', Number(e.target.value))}
+                          className="app-input w-24 px-2 py-1 text-center font-mono font-bold disabled:opacity-60"
                         />
                       </td>
-                      <td className="px-4 py-3 font-mono text-slate-600 dark:text-slate-300">
-                        $ {srv.hourlyRate.toLocaleString()}
+                      <td className="px-4 py-3">
+                        <input
+                          type="number"
+                          min="0"
+                          value={item.precioUnitario}
+                          disabled={isPresupuestoVencido}
+                          onChange={(e) => handleUpdatePresItem(idx, 'precioUnitario', Number(e.target.value))}
+                          className="app-input w-32 px-2 py-1 font-mono font-bold disabled:opacity-60"
+                        />
                       </td>
-                      <td className="px-4 py-3 font-mono font-bold text-slate-900 dark:text-white text-right">
-                        $ {srv.subtotal.toLocaleString()}
+                      <td className="px-4 py-3 font-mono font-black text-slate-900 dark:text-white text-right">
+                        $ {item.subtotal.toLocaleString()}
                       </td>
                       <td className="px-4 py-3 text-center">
                         <button
-                          onClick={() => removeBudgetService(srv.id)}
-                          className="text-red-500 hover:text-red-700 p-1 rounded-md hover:bg-red-50 dark:hover:bg-red-950/30"
+                          type="button"
+                          disabled={isPresupuestoVencido || presItems.length <= 1}
+                          onClick={() => handleRemovePresItem(idx)}
+                          className="text-red-500 hover:text-red-700 p-1 rounded-md hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-30"
                         >
                           <Trash2 className="w-4 h-4 mx-auto" />
                         </button>
@@ -2042,53 +2326,60 @@ export const RecepcionScreen: React.FC = () => {
               </table>
             </div>
 
-            {/* Totales */}
-            <div className="pt-4 border-t border-slate-200 dark:border-[#3A3A48] flex flex-col sm:flex-row justify-between items-end sm:items-center gap-4">
+            {/* Totales del Presupuesto (Criterio 2: Subtotal, Descuento de Fidelización y Total) */}
+            <div className="pt-4 border-t border-slate-200 dark:border-[#3A3A48] flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <div className="text-xs text-slate-500 space-y-1">
-                <p>• Los valores incluyen repuestos oficiales con garantía AutoTech 12 meses.</p>
-                <p>• Presupuesto con validez de 7 días corridos desde su emisión.</p>
+                <p>• Validez del presupuesto: <strong>{presValidezDias} días</strong> desde la emisión ({presFechaEmision}).</p>
+                <p>• Al registrarse, queda en estado <strong>"Emitido"</strong> y puede modificarse mientras continúe en ese estado.</p>
+                <p>• Si se superan los {presValidezDias} días sin respuesta del cliente, pasa a <strong>"Vencido"</strong> y se bloquea su edición.</p>
               </div>
 
-              <div className="w-full sm:w-72 space-y-1.5 text-xs text-right bg-slate-50 dark:bg-[#1E1E24] p-4 rounded-xl border border-slate-200 dark:border-[#3A3A48]">
-                <div className="flex justify-between text-slate-500 dark:text-slate-400">
-                  <span>Mano de Obra:</span>
-                  <span className="font-mono">$ {totalLabor.toLocaleString()}</span>
+              <div className="w-full sm:w-80 space-y-2 text-xs text-right bg-slate-50 dark:bg-[#1E1E24] p-4 rounded-xl border border-slate-200 dark:border-[#3A3A48]">
+                <div className="flex justify-between text-slate-600 dark:text-slate-300 font-semibold">
+                  <span>Subtotal:</span>
+                  <span className="font-mono font-bold">$ {calculatedSubtotal.toLocaleString()}</span>
                 </div>
-                <div className="flex justify-between text-slate-500 dark:text-slate-400">
-                  <span>Repuestos Est.:</span>
-                  <span className="font-mono">$ {estimatedParts.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between text-slate-500 dark:text-slate-400">
-                  <span>IVA (21%):</span>
-                  <span className="font-mono">$ {iva.toLocaleString()}</span>
+                <div className="flex justify-between text-emerald-600 dark:text-emerald-400 font-semibold">
+                  <span>Descuento fidelización ({presDescuentoPct}%):</span>
+                  <span className="font-mono font-bold">- $ {calculatedDescuento.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between text-base font-black text-slate-900 dark:text-white border-t border-slate-200 dark:border-[#3A3A48] pt-2">
                   <span>Total:</span>
-                  <span className="text-red-600 font-mono font-black">$ {grandTotal.toLocaleString()}</span>
+                  <span className="text-red-600 font-mono font-black">$ {calculatedTotal.toLocaleString()}</span>
                 </div>
               </div>
             </div>
 
-            <div className="pt-4 flex justify-end space-x-3">
+            {/* Botón de Acción Principal: "Registrar presupuesto" */}
+            <div className="pt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 dark:border-[#3A3A48]">
+              <div className="flex items-center space-x-2">
+                <span className="text-xs font-bold text-slate-500">Simular fecha actual para control de vencimiento:</span>
+                <input
+                  type="text"
+                  value={presFechaVencimientoSim}
+                  onChange={(e) => setPresFechaVencimientoSim(e.target.value)}
+                  className="app-input w-28 px-2.5 py-1.5 text-xs font-mono font-bold"
+                />
+                <button
+                  type="button"
+                  onClick={handleVerificarVencimiento}
+                  className="px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-700 dark:text-amber-300 border border-amber-500/30 text-xs font-bold"
+                >
+                  Verificar Vencimiento
+                </button>
+              </div>
+
               <button
                 type="button"
-                onClick={() => setToastMessage('Borrador guardado localmente.')}
-                className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-[#3A3A48] bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-200"
-              >
-                Guardar Borrador
-              </button>
-              <button
-                type="button"
-                onClick={handleEmitBudget}
-                className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-md shadow-red-600/30 transition-all flex items-center space-x-2"
+                disabled={isSavingPresupuesto || isPresupuestoVencido}
+                onClick={handleRegistrarPresupuesto}
+                className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-md shadow-red-600/30 disabled:opacity-40 transition-all flex items-center space-x-2"
               >
                 <FileCheck className="w-4 h-4" />
-                <span>Emitir Presupuesto</span>
+                <span>Registrar presupuesto</span>
               </button>
             </div>
-
           </div>
-
         </div>
       )}
 

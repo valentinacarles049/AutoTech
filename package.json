@@ -9,7 +9,7 @@
     "dev:server": "tsx watch server/index.ts",
     "server": "tsx server/index.ts",
     "build": "tsc && vite build",
-    "test:bdd": "tsx test_bdd_modificar_cliente.ts && tsx test_bdd_modificar_vehiculo.ts && tsx test_bdd_registrar_solicitud_turno.ts && tsx test_bdd_consultar_disponibilidad.ts && tsx test_bdd_confirmar_turno.ts && tsx test_bdd_consultar_turnos.ts && tsx test_bdd_finalizar_turno.ts",
+    "test:bdd": "tsx test_bdd_modificar_cliente.ts && tsx test_bdd_modificar_vehiculo.ts && tsx test_bdd_registrar_solicitud_turno.ts && tsx test_bdd_consultar_disponibilidad.ts && tsx test_bdd_confirmar_turno.ts && tsx test_bdd_consultar_turnos.ts && tsx test_bdd_finalizar_turno.ts && tsx test_bdd_registrar_presupuesto.ts",
     "test:bdd:hu6": "tsx test_bdd_modificar_cliente.ts",
     "test:bdd:hu8": "tsx test_bdd_modificar_vehiculo.ts",
     "test:bdd:hu9": "tsx test_bdd_registrar_solicitud_turno.ts",
@@ -17,6 +17,7 @@
     "test:bdd:hu11": "tsx test_bdd_confirmar_turno.ts",
     "test:bdd:hu12": "tsx test_bdd_consultar_turnos.ts",
     "test:bdd:hu15": "tsx test_bdd_finalizar_turno.ts",
+    "test:bdd:hu19": "tsx test_bdd_registrar_presupuesto.ts",
     "preview": "vite preview"
   },
   "dependencies": {

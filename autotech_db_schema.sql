@@ -162,16 +162,57 @@ BEGIN
 END $$;
 
 
--- 5. TABLA: PRESUPUESTOS (UML: Presupuesto)
--- Relación: 1 Turno tiene 0..1 Presupuesto
+-- 5. TABLA: PRESUPUESTOS Y DETALLE_PRESUPUESTOS (UML MODP: Presupuesto & DetallePresupuesto - HU-19)
+-- Relación: 1 Turno tiene 0..1 Presupuesto; 1 Presupuesto tiene 1..* DetallePresupuesto
 CREATE TABLE IF NOT EXISTS presupuestos (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   nro_presupuesto VARCHAR(30) UNIQUE NOT NULL,
   turno_id UUID NOT NULL UNIQUE REFERENCES turnos(id) ON DELETE CASCADE,
   fecha_emision DATE NOT NULL DEFAULT CURRENT_DATE,
-  monto_estimado NUMERIC(12, 2) NOT NULL,
-  validez_dias INT NOT NULL DEFAULT 7 -- Días de validez de la cotización
+  monto_estimado NUMERIC(12, 2) NOT NULL DEFAULT 0,
+  subtotal NUMERIC(12, 2) NOT NULL DEFAULT 0,
+  descuento_porcentaje NUMERIC(5, 2) NOT NULL DEFAULT 0,
+  descuento_monto NUMERIC(12, 2) NOT NULL DEFAULT 0,
+  total NUMERIC(12, 2) NOT NULL DEFAULT 0,
+  validez_dias INT NOT NULL DEFAULT 15, -- Días de validez de la cotización (HU-19 Criterio 3)
+  estado VARCHAR(30) NOT NULL DEFAULT 'Emitido', -- 'Emitido', 'Vencido', 'Aprobado', 'Rechazado' (HU-19 Criterios 4 y 5)
+  respuesta_cliente VARCHAR(50) DEFAULT NULL
 );
+
+-- Clase DetallePresupuesto del MODP (descripción, cantidad, precio unitario y subtotal)
+CREATE TABLE IF NOT EXISTS detalle_presupuestos (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  presupuesto_id UUID NOT NULL REFERENCES presupuestos(id) ON DELETE CASCADE,
+  descripcion VARCHAR(255) NOT NULL,
+  cantidad NUMERIC(10, 2) NOT NULL CHECK (cantidad > 0),
+  precio_unitario NUMERIC(12, 2) NOT NULL CHECK (precio_unitario >= 0),
+  subtotal NUMERIC(12, 2) NOT NULL
+);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='clientes' AND column_name='descuento_fidelizacion') THEN
+    ALTER TABLE clientes ADD COLUMN descuento_fidelizacion NUMERIC(5, 2) DEFAULT 0;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='presupuestos' AND column_name='subtotal') THEN
+    ALTER TABLE presupuestos ADD COLUMN subtotal NUMERIC(12, 2) NOT NULL DEFAULT 0;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='presupuestos' AND column_name='descuento_porcentaje') THEN
+    ALTER TABLE presupuestos ADD COLUMN descuento_porcentaje NUMERIC(5, 2) NOT NULL DEFAULT 0;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='presupuestos' AND column_name='descuento_monto') THEN
+    ALTER TABLE presupuestos ADD COLUMN descuento_monto NUMERIC(12, 2) NOT NULL DEFAULT 0;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='presupuestos' AND column_name='total') THEN
+    ALTER TABLE presupuestos ADD COLUMN total NUMERIC(12, 2) NOT NULL DEFAULT 0;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='presupuestos' AND column_name='estado') THEN
+    ALTER TABLE presupuestos ADD COLUMN estado VARCHAR(30) NOT NULL DEFAULT 'Emitido';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='presupuestos' AND column_name='respuesta_cliente') THEN
+    ALTER TABLE presupuestos ADD COLUMN respuesta_cliente VARCHAR(50) DEFAULT NULL;
+  END IF;
+END $$;
 
 
 -- 6. TABLA: ROLES (UML: Rol / Actores del Diagrama de Casos de Uso)
@@ -724,6 +765,140 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION finalizar_turno(VARCHAR, DATE, BOOLEAN) TO anon, authenticated, postgres;
+
+
+-- ============================================================
+-- PROCEDIMIENTO ALMACENADO: REGISTRAR PRESUPUESTO DE REPARACIÓN (HU-19)
+-- Implementa los 5 criterios de aceptación de la HU-19:
+-- 1. Tiene uno o más ítems de detalle (DetallePresupuesto), cada uno con descripción, cantidad, precio unitario y subtotal (cantidad * precio unitario).
+-- 2. El total es la suma de los subtotales menos el descuento de fidelización del cliente (si no tiene, no se descuenta nada).
+-- 3. Indica los días de validez.
+-- 4. Al registrarse, el presupuesto queda en estado "Emitido" y se puede modificar mientras siga así.
+-- 5. Si se superan los días de validez sin respuesta del cliente, pasa a "Vencido" y ya no se puede modificar.
+-- ============================================================
+CREATE OR REPLACE FUNCTION registrar_presupuesto(
+  p_turno_id UUID,
+  p_items JSONB,
+  p_validez_dias INT DEFAULT 15,
+  p_descuento_porcentaje NUMERIC DEFAULT NULL,
+  p_fecha_emision DATE DEFAULT CURRENT_DATE
+)
+RETURNS TABLE (
+  id UUID,
+  nro_presupuesto VARCHAR,
+  turno_id UUID,
+  subtotal NUMERIC,
+  descuento_porcentaje NUMERIC,
+  descuento_monto NUMERIC,
+  total NUMERIC,
+  validez_dias INT,
+  estado VARCHAR,
+  mensaje VARCHAR
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_turno RECORD;
+  v_existing RECORD;
+  v_presupuesto_id UUID;
+  v_nro_pres VARCHAR;
+  v_subtotal NUMERIC(12, 2) := 0;
+  v_desc_pct NUMERIC(5, 2) := 0;
+  v_desc_monto NUMERIC(12, 2) := 0;
+  v_total NUMERIC(12, 2) := 0;
+  v_item JSONB;
+  v_cant NUMERIC(10, 2);
+  v_precio NUMERIC(12, 2);
+  v_item_sub NUMERIC(12, 2);
+BEGIN
+  -- 1. Verificar que el turno exista y esté en estado "Finalizado"
+  SELECT t.*, et.descripcion_estado AS estado_nombre, c.descuento_fidelizacion
+  INTO v_turno
+  FROM turnos t
+  JOIN estado_turnos et ON t.estado_turno_id = et.id
+  LEFT JOIN vehiculos v ON t.vehiculo_dominio = v.dominio
+  LEFT JOIN clientes c ON v.cliente_id = c.id
+  WHERE t.id = p_turno_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'El turno indicado no existe';
+  END IF;
+
+  IF v_turno.estado_nombre <> 'Finalizado' THEN
+    RAISE EXCEPTION 'Sólo se puede registrar el presupuesto de un turno en estado Finalizado';
+  END IF;
+
+  -- 2. Validar que tenga uno o más ítems de detalle (Criterio 1)
+  IF p_items IS NULL OR jsonb_array_length(p_items) = 0 THEN
+    RAISE EXCEPTION 'El presupuesto debe tener al menos un ítem de detalle (DetallePresupuesto)';
+  END IF;
+
+  -- Verificar si ya existe un presupuesto para este turno (Criterios 4 y 5: se puede modificar mientras siga en estado "Emitido")
+  SELECT * INTO v_existing FROM presupuestos WHERE presupuestos.turno_id = p_turno_id;
+  IF FOUND AND v_existing.estado <> 'Emitido' THEN
+    RAISE EXCEPTION 'El presupuesto se encuentra en estado % y ya no se puede modificar', v_existing.estado;
+  END IF;
+
+  -- 3. Calcular subtotales por ítem y subtotal general
+  FOR v_item IN SELECT * FROM jsonb_array_elements(p_items)
+  LOOP
+    v_cant := COALESCE((v_item->>'cantidad')::NUMERIC, 0);
+    v_precio := COALESCE((v_item->>'precio_unitario')::NUMERIC, COALESCE((v_item->>'precioUnitario')::NUMERIC, 0));
+    v_item_sub := ROUND(v_cant * v_precio, 2);
+    v_subtotal := v_subtotal + v_item_sub;
+  END LOOP;
+
+  -- 4. Descuento de fidelización del cliente (Criterio 2)
+  v_desc_pct := COALESCE(p_descuento_porcentaje, v_turno.descuento_fidelizacion, 0);
+  IF v_desc_pct < 0 THEN v_desc_pct := 0; END IF;
+  v_desc_monto := ROUND(v_subtotal * (v_desc_pct / 100.0), 2);
+  v_total := ROUND(v_subtotal - v_desc_monto, 2);
+
+  -- 5. Insertar o actualizar el presupuesto en estado "Emitido" (Criterio 4)
+  IF v_existing.id IS NOT NULL THEN
+    v_presupuesto_id := v_existing.id;
+    v_nro_pres := v_existing.nro_presupuesto;
+
+    UPDATE presupuestos
+    SET subtotal = v_subtotal,
+        descuento_porcentaje = v_desc_pct,
+        descuento_monto = v_desc_monto,
+        total = v_total,
+        monto_estimado = v_total,
+        validez_dias = COALESCE(p_validez_dias, 15),
+        fecha_emision = COALESCE(p_fecha_emision, CURRENT_DATE)
+    WHERE presupuestos.id = v_presupuesto_id;
+
+    DELETE FROM detalle_presupuestos WHERE presupuesto_id = v_presupuesto_id;
+  ELSE
+    v_nro_pres := 'PRES-2026-' || LPAD((SELECT COUNT(*) + 1 FROM presupuestos)::TEXT, 3, '0');
+    INSERT INTO presupuestos (
+      nro_presupuesto, turno_id, fecha_emision, monto_estimado,
+      subtotal, descuento_porcentaje, descuento_monto, total, validez_dias, estado
+    ) VALUES (
+      v_nro_pres, p_turno_id, COALESCE(p_fecha_emision, CURRENT_DATE), v_total,
+      v_subtotal, v_desc_pct, v_desc_monto, v_total, COALESCE(p_validez_dias, 15), 'Emitido'
+    ) RETURNING presupuestos.id INTO v_presupuesto_id;
+  END IF;
+
+  -- 6. Insertar los ítems en detalle_presupuestos (DetallePresupuesto del MODP)
+  FOR v_item IN SELECT * FROM jsonb_array_elements(p_items)
+  LOOP
+    v_cant := COALESCE((v_item->>'cantidad')::NUMERIC, 0);
+    v_precio := COALESCE((v_item->>'precio_unitario')::NUMERIC, COALESCE((v_item->>'precioUnitario')::NUMERIC, 0));
+    v_item_sub := ROUND(v_cant * v_precio, 2);
+
+    INSERT INTO detalle_presupuestos (presupuesto_id, descripcion, cantidad, precio_unitario, subtotal)
+    VALUES (v_presupuesto_id, COALESCE(v_item->>'descripcion', v_item->>'descripción', 'Ítem'), v_cant, v_precio, v_item_sub);
+  END LOOP;
+
+  RETURN QUERY
+  SELECT v_presupuesto_id, v_nro_pres, p_turno_id, v_subtotal, v_desc_pct, v_desc_monto, v_total, COALESCE(p_validez_dias, 15), 'Emitido'::VARCHAR, 'Presupuesto registrado exitosamente'::VARCHAR;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION registrar_presupuesto(UUID, JSONB, INT, NUMERIC, DATE) TO anon, authenticated, postgres;
 
 
 

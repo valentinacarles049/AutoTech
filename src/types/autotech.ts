@@ -25,6 +25,7 @@ export interface Client {
   razonSocial?: string; // Opcional (clientes empresa)
   localidad?: string; // Localidad
   nivelFidelizacion?: string | null; // Queda sin nivel de fidelización asignado (null)
+  descuentoFidelizacion?: number; // Porcentaje de descuento de fidelización (ej: 10 para 10%)
   vehicleCount: number;
   status: 'Activo' | 'Inactivo';
   fechaAlta?: string;
@@ -247,15 +248,100 @@ export interface FinalizarTurnoResult {
 }
 
 // ==========================================
-// 5. PRESUPUESTO (UML MVP: nroPresupuesto, fechaEmision, montoEstimado, validezDias)
+// 5. PRESUPUESTO Y DETALLE PRESUPUESTO (UML MODP & HU-19: Registrar presupuesto de reparación)
 // ==========================================
+export type PresupuestoEstadoNombre = 'Emitido' | 'Vencido' | 'Aprobado' | 'Rechazado';
+
+// Clase DetallePresupuesto del MODP (descripción, cantidad, precio unitario y subtotal)
+export interface DetallePresupuesto {
+  id?: string;
+  descripcion: string;
+  cantidad: number;
+  precioUnitario: number;
+  precio_unitario?: number;
+  subtotal: number;
+}
+
 export interface Presupuesto {
   id: string;
   nroPresupuesto: string;
+  nro_presupuesto?: string;
   turnoId: string; // Relación 1..1 con Turno
-  fechaEmision: string;
+  turno_id?: string;
+  vehiculoDominio?: string;
+  clienteId?: string;
+  clienteNombre?: string;
+  fechaEmision: string; // ej: "15/11/2026"
+  fecha_emision?: string;
   montoEstimado: number;
-  validezDias: number; // Ej: 7 días, 15 días
+  validezDias: number; // Ej: 15 días (HU-19 Criterio 3)
+  validez_dias?: number;
+  items: DetallePresupuesto[];
+  subtotal: number; // Suma de los subtotales de cada ítem
+  descuentoPorcentaje: number; // Descuento de fidelización del cliente (ej: 10 para 10%)
+  descuento: number; // Monto descontado (ej: 5900)
+  descuentoMonto?: number;
+  total: number; // subtotal - descuento (ej: 53100)
+  estado: PresupuestoEstadoNombre; // 'Emitido' | 'Vencido' | 'Aprobado' | 'Rechazado'
+  respuestaCliente?: string | null;
+  puedeModificarse: boolean;
+  puede_modificarse?: boolean;
+}
+
+export interface RegistrarPresupuestoItemInput {
+  descripcion: string;
+  cantidad: number;
+  precioUnitario?: number;
+  precio_unitario?: number;
+}
+
+export interface RegistrarPresupuestoPayload {
+  turnoId?: string;
+  turno_id?: string;
+  vehiculoDominio?: string;
+  patente?: string;
+  clienteNombre?: string;
+  descuentoFidelizacionPorcentaje?: number;
+  descuento_fidelizacion?: number;
+  validezDias: number;
+  validez_dias?: number;
+  fechaEmision?: string;
+  fecha_emision?: string;
+  items: RegistrarPresupuestoItemInput[];
+}
+
+export interface ModificarPresupuestoPayload {
+  presupuestoId?: string;
+  presupuesto_id?: string;
+  turnoId?: string;
+  turno_id?: string;
+  validezDias?: number;
+  validez_dias?: number;
+  descuentoFidelizacionPorcentaje?: number;
+  fechaActual?: string;
+  items: RegistrarPresupuestoItemInput[];
+}
+
+export interface VerificarVencimientoPresupuestoPayload {
+  presupuestoId?: string;
+  presupuesto_id?: string;
+  turnoId?: string;
+  turno_id?: string;
+  fechaActual: string; // ej: "01/12/2026"
+  respuestaCliente?: string | null;
+}
+
+export interface RegistrarPresupuestoResult {
+  success: boolean;
+  message: string;
+  error?: string;
+  presupuesto?: Presupuesto;
+  estado?: PresupuestoEstadoNombre;
+  subtotal?: number;
+  descuento?: number;
+  total?: number;
+  puedeModificarse?: boolean;
+  puede_modificarse?: boolean;
 }
 
 // ==========================================

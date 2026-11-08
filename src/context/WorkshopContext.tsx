@@ -15,7 +15,13 @@ import {
   FiltroTurnosParams,
   ConsultarTurnosResult,
   FinalizarTurnoPayload,
-  FinalizarTurnoResult
+  FinalizarTurnoResult,
+  Presupuesto,
+  DetallePresupuesto,
+  RegistrarPresupuestoPayload,
+  ModificarPresupuestoPayload,
+  VerificarVencimientoPresupuestoPayload,
+  RegistrarPresupuestoResult
 } from '../types/autotech';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { getDefaultScreenForRole, isScreenAllowed } from '../utils/permissions';
@@ -229,6 +235,12 @@ interface WorkshopContextType {
   // HU-15: Finalizar turno (registrar presentación del vehículo) y control de ausencia
   finalizarTurno: (data: FinalizarTurnoPayload) => Promise<FinalizarTurnoResult>;
   registrarAusenciaTurno: (data: FinalizarTurnoPayload) => Promise<FinalizarTurnoResult>;
+
+  // HU-19: Registrar presupuesto de reparación
+  presupuestos: Presupuesto[];
+  registrarPresupuesto: (data: RegistrarPresupuestoPayload) => Promise<RegistrarPresupuestoResult>;
+  modificarPresupuesto: (data: ModificarPresupuestoPayload) => Promise<RegistrarPresupuestoResult>;
+  verificarVencimientoPresupuesto: (data: VerificarVencimientoPresupuestoPayload) => Promise<RegistrarPresupuestoResult>;
 }
 
 export const defaultSucursales: Sucursal[] = [
@@ -2437,6 +2449,396 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
   };
 
+  // ============================================================
+  // HU-19: Registrar presupuesto de reparación
+  // ============================================================
+  const [presupuestos, setPresupuestos] = useState<Presupuesto[]>([]);
+
+  const calcularDiasEntreFechas = (fechaEmisionStr: string, fechaActualStr: string): number => {
+    const normE = normalizeContextDate(fechaEmisionStr);
+    const normA = normalizeContextDate(fechaActualStr);
+    if (!normE.parsedDate || !normA.parsedDate) return 0;
+    const utcE = Date.UTC(normE.parsedDate.getFullYear(), normE.parsedDate.getMonth(), normE.parsedDate.getDate());
+    const utcA = Date.UTC(normA.parsedDate.getFullYear(), normA.parsedDate.getMonth(), normA.parsedDate.getDate());
+    return Math.floor((utcA - utcE) / (1000 * 60 * 60 * 24));
+  };
+
+  const registrarPresupuesto = async (data: RegistrarPresupuestoPayload): Promise<RegistrarPresupuestoResult> => {
+    const targetTurnoId = String(data.turnoId || data.turno_id || '').trim();
+    const targetPatente = String(data.vehiculoDominio || data.patente || '').trim().toUpperCase();
+    const validezDias = Number(data.validezDias ?? data.validez_dias ?? 15);
+    const rawItems = data.items || [];
+
+    try {
+      const response = await fetch('http://localhost:4000/api/presupuestos/public-register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          turno_id: targetTurnoId || undefined,
+          patente: targetPatente || undefined,
+          cliente_nombre: data.clienteNombre,
+          descuento_fidelizacion: data.descuentoFidelizacionPorcentaje ?? data.descuento_fidelizacion,
+          validez_dias: validezDias,
+          fecha_emision: data.fechaEmision || data.fecha_emision,
+          items: rawItems.map(it => ({
+            descripcion: it.descripcion,
+            cantidad: it.cantidad,
+            precio_unitario: it.precioUnitario ?? it.precio_unitario ?? 0
+          }))
+        })
+      });
+
+      const resData = await response.json();
+      if (!response.ok) {
+        return {
+          success: false,
+          error: resData.error || resData.message || 'No se pudo registrar el presupuesto',
+          message: resData.message || resData.error || 'No se pudo registrar el presupuesto'
+        };
+      }
+
+      if (resData.success && resData.presupuesto) {
+        const p: Presupuesto = resData.presupuesto;
+        setPresupuestos(prev => {
+          const idx = prev.findIndex(x => x.id === p.id || x.turnoId === p.turnoId);
+          if (idx >= 0) {
+            const next = [...prev];
+            next[idx] = p;
+            return next;
+          }
+          return [p, ...prev];
+        });
+        return {
+          success: true,
+          message: resData.message || 'Presupuesto registrado exitosamente',
+          presupuesto: p,
+          estado: p.estado,
+          subtotal: p.subtotal,
+          descuento: p.descuento,
+          total: p.total,
+          puedeModificarse: p.estado === 'Emitido',
+          puede_modificarse: p.estado === 'Emitido'
+        };
+      }
+    } catch {
+      // Fallback local en memoria
+    }
+
+    // Buscar el turno
+    let targetTurno = turnos.find(t => {
+      if (targetTurnoId && t.id === targetTurnoId) return true;
+      if (targetPatente && t.vehiculoDominio.toUpperCase() === targetPatente && t.estado === 'Finalizado') return true;
+      return false;
+    });
+
+    if (!targetTurno) {
+      targetTurno = turnos.find(t => {
+        if (targetTurnoId && t.id === targetTurnoId) return true;
+        if (targetPatente && t.vehiculoDominio.toUpperCase() === targetPatente) return true;
+        return false;
+      });
+    }
+
+    if (!targetTurno) {
+      return {
+        success: false,
+        error: 'No se encontró el turno indicado para registrar el presupuesto',
+        message: 'No se encontró el turno indicado para registrar el presupuesto'
+      };
+    }
+
+    if (targetTurno.estado !== 'Finalizado') {
+      return {
+        success: false,
+        error: 'Sólo se puede registrar el presupuesto de un turno finalizado',
+        message: 'Sólo se puede registrar el presupuesto de un turno finalizado'
+      };
+    }
+
+    // Verificar si ya existe un presupuesto vencido para este turno
+    const existing = presupuestos.find(p => p.turnoId === targetTurno!.id);
+    if (existing && existing.estado !== 'Emitido') {
+      return {
+        success: false,
+        error: `El presupuesto se encuentra en estado "${existing.estado}" y ya no se puede modificar`,
+        message: `El presupuesto se encuentra en estado "${existing.estado}" y ya no se puede modificar`,
+        estado: existing.estado,
+        puedeModificarse: false,
+        puede_modificarse: false
+      };
+    }
+
+    if (!Array.isArray(rawItems) || rawItems.length === 0) {
+      return {
+        success: false,
+        error: 'El presupuesto debe tener uno o más ítems de detalle (DetallePresupuesto)',
+        message: 'El presupuesto debe tener uno o más ítems de detalle (DetallePresupuesto)'
+      };
+    }
+
+    const processedItems: DetallePresupuesto[] = [];
+    let subtotal = 0;
+
+    for (let i = 0; i < rawItems.length; i++) {
+      const it = rawItems[i];
+      const desc = String(it.descripcion || '').trim();
+      const cant = Number(it.cantidad || 0);
+      const unit = Number(it.precioUnitario ?? it.precio_unitario ?? 0);
+      if (!desc || cant <= 0 || unit < 0) {
+        return {
+          success: false,
+          error: 'Todos los ítems deben tener descripción, cantidad mayor a 0 y precio unitario válido',
+          message: 'Todos los ítems deben tener descripción, cantidad mayor a 0 y precio unitario válido'
+        };
+      }
+      const itemSub = Math.round(cant * unit * 100) / 100;
+      subtotal = Math.round((subtotal + itemSub) * 100) / 100;
+      processedItems.push({
+        id: `det-${i + 1}`,
+        descripcion: desc,
+        cantidad: cant,
+        precioUnitario: unit,
+        precio_unitario: unit,
+        subtotal: itemSub
+      });
+    }
+
+    // Determinar descuento de fidelización del cliente (Criterio 2)
+    const clientObj = clients.find(c =>
+      (targetTurno!.clienteId && c.id === targetTurno!.clienteId) ||
+      (targetTurno!.clienteNombre && c.name.toLowerCase() === targetTurno!.clienteNombre.toLowerCase())
+    );
+
+    let descuentoPct = Number(
+      data.descuentoFidelizacionPorcentaje ??
+      data.descuento_fidelizacion ??
+      clientObj?.descuentoFidelizacion ??
+      0
+    );
+    if (isNaN(descuentoPct) || descuentoPct < 0) descuentoPct = 0;
+
+    const descuentoMonto = Math.round(subtotal * (descuentoPct / 100) * 100) / 100;
+    const total = Math.round((subtotal - descuentoMonto) * 100) / 100;
+    const fechaEmision = normalizeContextDate(String(data.fechaEmision || data.fecha_emision || targetTurno.fecha || '15/11/2026')).ddmmyyyy;
+
+    const nuevoPresupuesto: Presupuesto = {
+      id: existing?.id || `pres-${Date.now()}`,
+      nroPresupuesto: existing?.nroPresupuesto || `PRES-2026-${String(presupuestos.length + 1).padStart(3, '0')}`,
+      nro_presupuesto: existing?.nroPresupuesto || `PRES-2026-${String(presupuestos.length + 1).padStart(3, '0')}`,
+      turnoId: targetTurno.id,
+      turno_id: targetTurno.id,
+      vehiculoDominio: targetTurno.vehiculoDominio,
+      clienteId: targetTurno.clienteId,
+      clienteNombre: targetTurno.clienteNombre || data.clienteNombre || 'Cliente',
+      fechaEmision,
+      fecha_emision: fechaEmision,
+      montoEstimado: total,
+      validezDias: validezDias > 0 ? validezDias : 15,
+      validez_dias: validezDias > 0 ? validezDias : 15,
+      items: processedItems,
+      subtotal,
+      descuentoPorcentaje: descuentoPct,
+      descuento: descuentoMonto,
+      descuentoMonto,
+      total,
+      estado: 'Emitido',
+      respuestaCliente: null,
+      puedeModificarse: true,
+      puede_modificarse: true
+    };
+
+    setPresupuestos(prev => {
+      const idx = prev.findIndex(p => p.turnoId === targetTurno!.id);
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = nuevoPresupuesto;
+        return copy;
+      }
+      return [nuevoPresupuesto, ...prev];
+    });
+
+    return {
+      success: true,
+      message: 'Presupuesto registrado exitosamente',
+      presupuesto: nuevoPresupuesto,
+      estado: 'Emitido',
+      subtotal,
+      descuento: descuentoMonto,
+      total,
+      puedeModificarse: true,
+      puede_modificarse: true
+    };
+  };
+
+  const modificarPresupuesto = async (data: ModificarPresupuestoPayload): Promise<RegistrarPresupuestoResult> => {
+    const targetId = String(data.presupuestoId || data.presupuesto_id || '').trim();
+    const targetTurnoId = String(data.turnoId || data.turno_id || '').trim();
+
+    try {
+      const response = await fetch('http://localhost:4000/api/presupuestos/modificar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          presupuesto_id: targetId || undefined,
+          turno_id: targetTurnoId || undefined,
+          validez_dias: data.validezDias ?? data.validez_dias,
+          descuento_fidelizacion: data.descuentoFidelizacionPorcentaje,
+          fecha_actual: data.fechaActual,
+          items: data.items.map(it => ({
+            descripcion: it.descripcion,
+            cantidad: it.cantidad,
+            precio_unitario: it.precioUnitario ?? it.precio_unitario ?? 0
+          }))
+        })
+      });
+
+      const resData = await response.json();
+      if (!response.ok) {
+        return {
+          success: false,
+          error: resData.error || resData.message || 'No se puede modificar el presupuesto',
+          message: resData.message || resData.error || 'No se puede modificar el presupuesto',
+          estado: resData.estado,
+          puedeModificarse: false,
+          puede_modificarse: false
+        };
+      }
+
+      if (resData.success && resData.presupuesto) {
+        const p: Presupuesto = resData.presupuesto;
+        setPresupuestos(prev => prev.map(x => (x.id === p.id || x.turnoId === p.turnoId ? p : x)));
+        return {
+          success: true,
+          message: resData.message || 'Presupuesto modificado exitosamente',
+          presupuesto: p,
+          estado: p.estado,
+          subtotal: p.subtotal,
+          descuento: p.descuento,
+          total: p.total,
+          puedeModificarse: p.estado === 'Emitido',
+          puede_modificarse: p.estado === 'Emitido'
+        };
+      }
+    } catch {
+      // Fallback local
+    }
+
+    const existing = presupuestos.find(p =>
+      (targetId && p.id === targetId) ||
+      (targetTurnoId && p.turnoId === targetTurnoId)
+    );
+
+    if (!existing) {
+      return {
+        success: false,
+        error: 'Presupuesto no encontrado',
+        message: 'Presupuesto no encontrado'
+      };
+    }
+
+    if (existing.estado !== 'Emitido') {
+      return {
+        success: false,
+        error: `No se puede modificar el presupuesto porque se encuentra en estado "${existing.estado}"`,
+        message: `No se puede modificar el presupuesto porque se encuentra en estado "${existing.estado}"`,
+        estado: existing.estado,
+        puedeModificarse: false,
+        puede_modificarse: false
+      };
+    }
+
+    return registrarPresupuesto({
+      turnoId: existing.turnoId,
+      validezDias: data.validezDias ?? data.validez_dias ?? existing.validezDias,
+      descuentoFidelizacionPorcentaje: data.descuentoFidelizacionPorcentaje ?? existing.descuentoPorcentaje,
+      fechaEmision: existing.fechaEmision,
+      items: data.items
+    });
+  };
+
+  const verificarVencimientoPresupuesto = async (data: VerificarVencimientoPresupuestoPayload): Promise<RegistrarPresupuestoResult> => {
+    const targetId = String(data.presupuestoId || data.presupuesto_id || '').trim();
+    const targetTurnoId = String(data.turnoId || data.turno_id || '').trim();
+    const fechaActual = String(data.fechaActual || '01/12/2026').trim();
+
+    try {
+      const response = await fetch('http://localhost:4000/api/presupuestos/verificar-vencimiento', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          presupuesto_id: targetId || undefined,
+          turno_id: targetTurnoId || undefined,
+          fecha_actual: fechaActual,
+          respuesta_cliente: data.respuestaCliente
+        })
+      });
+
+      const resData = await response.json();
+      if (response.ok && resData.success && resData.presupuesto) {
+        const p: Presupuesto = resData.presupuesto;
+        setPresupuestos(prev => prev.map(x => (x.id === p.id || x.turnoId === p.turnoId ? p : x)));
+        return {
+          success: true,
+          message: resData.message,
+          presupuesto: p,
+          estado: p.estado,
+          subtotal: p.subtotal,
+          descuento: p.descuento,
+          total: p.total,
+          puedeModificarse: p.estado === 'Emitido',
+          puede_modificarse: p.estado === 'Emitido'
+        };
+      }
+    } catch {
+      // Fallback local
+    }
+
+    const existing = presupuestos.find(p =>
+      (targetId && p.id === targetId) ||
+      (targetTurnoId && p.turnoId === targetTurnoId)
+    ) || presupuestos[0];
+
+    if (!existing) {
+      return {
+        success: false,
+        error: 'Presupuesto no encontrado',
+        message: 'Presupuesto no encontrado'
+      };
+    }
+
+    const dias = calcularDiasEntreFechas(existing.fechaEmision, fechaActual);
+    const sinRespuesta = !existing.respuestaCliente && !data.respuestaCliente;
+
+    let updated: Presupuesto = { ...existing };
+    if (existing.estado === 'Emitido' && sinRespuesta && dias > existing.validezDias) {
+      updated = {
+        ...existing,
+        estado: 'Vencido',
+        puedeModificarse: false,
+        puede_modificarse: false
+      };
+    }
+
+    setPresupuestos(prev => prev.map(p => p.id === updated.id ? updated : p));
+
+    return {
+      success: true,
+      message: updated.estado === 'Vencido'
+        ? 'El presupuesto superó los días de validez sin respuesta del cliente y pasó al estado "Vencido"'
+        : 'El presupuesto aún se encuentra dentro del plazo de validez',
+      presupuesto: updated,
+      estado: updated.estado,
+      subtotal: updated.subtotal,
+      descuento: updated.descuento,
+      total: updated.total,
+      puedeModificarse: updated.estado === 'Emitido',
+      puede_modificarse: updated.estado === 'Emitido'
+    };
+  };
+
   return (
     <WorkshopContext.Provider value={{
       isDark,
@@ -2483,7 +2885,11 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       confirmarTurno,
       consultarTurnos,
       finalizarTurno,
-      registrarAusenciaTurno
+      registrarAusenciaTurno,
+      presupuestos,
+      registrarPresupuesto,
+      modificarPresupuesto,
+      verificarVencimientoPresupuesto
     }}>
       {children}
     </WorkshopContext.Provider>

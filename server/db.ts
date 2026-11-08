@@ -109,6 +109,7 @@ export interface LocalClient {
   telefono: string;
   localidad?: string | null;
   nivel_fidelizacion: string | null;
+  descuento_fidelizacion?: number;
   fecha_alta: string;
   estado: string;
 }
@@ -358,5 +359,54 @@ export const localTurnosSeed: LocalTurno[] = [
     notificacion_cliente: null
   }
 ];
+
+// ============================================================
+// Presupuestos y DetallePresupuesto (HU-19: Registrar presupuesto de reparación)
+// ============================================================
+export interface LocalDetallePresupuesto {
+  id?: string;
+  descripcion: string;
+  cantidad: number;
+  precio_unitario: number;
+  subtotal: number;
+}
+
+export type PresupuestoEstado = 'Emitido' | 'Vencido' | 'Aprobado' | 'Rechazado';
+
+export interface LocalPresupuesto {
+  id: string;
+  nro_presupuesto: string;
+  turno_id: string;
+  vehiculo_dominio: string;
+  cliente_id?: string;
+  cliente_nombre?: string;
+  fecha_emision: string; // formato "DD/MM/YYYY"
+  validez_dias: number;  // ej: 15
+  items: LocalDetallePresupuesto[];
+  subtotal: number;
+  descuento_porcentaje: number;
+  descuento: number;
+  descuento_monto: number;
+  total: number;
+  estado: PresupuestoEstado;
+  respuesta_cliente?: string | null;
+  puede_modificarse: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+let nextPresupuestoCounter = 1;
+
+export const getNextPresupuestoNumber = (): string => {
+  const num = nextPresupuestoCounter++;
+  return `PRES-2026-${String(num).padStart(3, '0')}`;
+};
+
+export const resetPresupuestoCounter = (val: number = 1): void => {
+  nextPresupuestoCounter = val;
+};
+
+export const localPresupuestosSeed: LocalPresupuesto[] = [];
+
 
 
