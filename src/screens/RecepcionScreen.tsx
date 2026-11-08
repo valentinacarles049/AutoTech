@@ -23,10 +23,11 @@ import {
   Send,
   CheckCheck,
   ArrowUpDown,
-  RotateCcw
+  RotateCcw,
+  UserX
 } from 'lucide-react';
 import { useWorkshop } from '../context/WorkshopContext';
-import { Turno, Vehicle, Client, DisponibilidadHorariaResult, ConfirmarTurnoResult } from '../types/autotech';
+import { Turno, Vehicle, Client, DisponibilidadHorariaResult, ConfirmarTurnoResult, FinalizarTurnoResult } from '../types/autotech';
 
 export const RecepcionScreen: React.FC = () => {
   const { 
@@ -47,11 +48,13 @@ export const RecepcionScreen: React.FC = () => {
     consultarDisponibilidad,
     registerTurno,
     confirmarTurno,
-    consultarTurnos
+    consultarTurnos,
+    finalizarTurno,
+    registrarAusenciaTurno
   } = useWorkshop();
 
-  // Tab activo dentro del módulo de recepción (HU-09, HU-10, HU-11, HU-12)
-  const [activeTab, setActiveTab] = useState<'nuevo-turno' | 'disponibilidad' | 'confirmar-turno' | 'agenda' | 'presupuesto'>('agenda');
+  // Tab activo dentro del módulo de recepción (HU-09, HU-10, HU-11, HU-12, HU-15)
+  const [activeTab, setActiveTab] = useState<'nuevo-turno' | 'disponibilidad' | 'confirmar-turno' | 'agenda' | 'finalizar-turno' | 'presupuesto'>('finalizar-turno');
 
   // Estados para HU-12: Consultar turnos filtrando por estado, rango de fechas y sucursal
   const [filtroEstado, setFiltroEstado] = useState<string>('Todos');
@@ -121,6 +124,93 @@ export const RecepcionScreen: React.FC = () => {
   const [confirmSuccess, setConfirmSuccess] = useState<string | null>(null);
   const [confirmResult, setConfirmResult] = useState<ConfirmarTurnoResult | null>(null);
   const [isConfirming, setIsConfirming] = useState<boolean>(false);
+
+  // Estados para HU-15: Finalizar Turno (registrar presentación del vehículo)
+  const [finTurnoId, setFinTurnoId] = useState<string>(() => turnos[0]?.id || '');
+  const [finFechaHoy, setFinFechaHoy] = useState<string>('15/11/2026');
+  const [finHoraActual, setFinHoraActual] = useState<string>('09:00');
+  const [finError, setFinError] = useState<string | null>(null);
+  const [finSuccess, setFinSuccess] = useState<string | null>(null);
+  const [finResult, setFinResult] = useState<FinalizarTurnoResult | null>(null);
+  const [isFinalizing, setIsFinalizing] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!finTurnoId && turnos.length > 0) {
+      const tJuan = turnos.find(t => t.vehiculoDominio === 'AB123CD') || turnos[0];
+      setFinTurnoId(tJuan.id);
+    }
+  }, [turnos, finTurnoId]);
+
+  const handleFinalizarTurno = async () => {
+    setFinError(null);
+    setFinSuccess(null);
+    setFinResult(null);
+
+    const target = turnos.find(t => t.id === finTurnoId) || turnos[0];
+    if (!target) {
+      setFinError('Seleccione un turno para finalizar');
+      return;
+    }
+
+    setIsFinalizing(true);
+    try {
+      const res = await finalizarTurno({
+        turnoId: target.id,
+        nroTurno: target.nroTurno,
+        vehiculoDominio: target.vehiculoDominio,
+        fechaActual: finFechaHoy,
+        horaActual: finHoraActual,
+        vehiculoPresentado: true
+      });
+
+      setFinResult(res);
+      if (res.success) {
+        setFinSuccess(res.message || 'Turno finalizado correctamente. Queda habilitado el registro del presupuesto');
+        selectVehicleForReception(target.vehiculoDominio);
+      } else {
+        setFinError(res.error || res.message || 'Sólo se pueden finalizar turnos confirmados del día');
+      }
+    } catch (err: any) {
+      setFinError(err.message || 'Error al finalizar el turno');
+    } finally {
+      setIsFinalizing(false);
+    }
+  };
+
+  const handleMarcarAusente = async () => {
+    setFinError(null);
+    setFinSuccess(null);
+    setFinResult(null);
+
+    const target = turnos.find(t => t.id === finTurnoId) || turnos[0];
+    if (!target) {
+      setFinError('Seleccione un turno');
+      return;
+    }
+
+    setIsFinalizing(true);
+    try {
+      const res = await registrarAusenciaTurno({
+        turnoId: target.id,
+        nroTurno: target.nroTurno,
+        vehiculoDominio: target.vehiculoDominio,
+        fechaActual: finFechaHoy,
+        horaActual: finHoraActual,
+        vehiculoPresentado: false
+      });
+
+      setFinResult(res);
+      if (res.success) {
+        setFinSuccess('El vehículo no se presentó a la hora programada. El turno pasó al estado "Ausente".');
+      } else {
+        setFinError(res.error || 'No se pudo marcar como ausente');
+      }
+    } catch (err: any) {
+      setFinError(err.message || 'Error al procesar ausencia');
+    } finally {
+      setIsFinalizing(false);
+    }
+  };
 
   // Sincronizar selección de turno a confirmar
   useEffect(() => {
@@ -460,6 +550,18 @@ export const RecepcionScreen: React.FC = () => {
         >
           <ListFilter className="w-4 h-4" />
           <span>HU-12: Consultar Turnos ({turnos.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('finalizar-turno')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center space-x-2 transition-all ${
+            activeTab === 'finalizar-turno'
+              ? 'bg-red-600 text-white shadow-md shadow-red-600/30'
+              : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+          }`}
+        >
+          <Car className="w-4 h-4" />
+          <span>HU-15: Finalizar Turno (Presentación)</span>
         </button>
 
         <button
@@ -1297,6 +1399,8 @@ export const RecepcionScreen: React.FC = () => {
                   <option value="Todos">Todos los estados</option>
                   <option value="Confirmado">Confirmado</option>
                   <option value="Solicitado">Solicitado</option>
+                  <option value="Finalizado">Finalizado</option>
+                  <option value="Ausente">Ausente</option>
                   <option value="En Taller">En Taller</option>
                   <option value="Cancelado">Cancelado</option>
                 </select>
@@ -1465,6 +1569,15 @@ export const RecepcionScreen: React.FC = () => {
                               <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
                               <span>Confirmado</span>
                             </span>
+                          ) : t.estado === 'Finalizado' ? (
+                            <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-400 border border-blue-300 dark:border-blue-800">
+                              <CheckCircle2 className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+                              <span>Finalizado</span>
+                            </span>
+                          ) : t.estado === 'Ausente' ? (
+                            <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-400 border border-red-300 dark:border-red-800">
+                              <span>Ausente</span>
+                            </span>
                           ) : t.estado === 'Cancelado' ? (
                             <span className="badge-gray text-[10px] px-2.5 py-0.5 font-bold">
                               Cancelado
@@ -1490,6 +1603,20 @@ export const RecepcionScreen: React.FC = () => {
                                 <span>Confirmar</span>
                               </button>
                             )}
+                            {t.estado === 'Confirmado' && (
+                              <button
+                                onClick={() => {
+                                  setFinTurnoId(t.id);
+                                  setFinFechaHoy(t.fecha);
+                                  setActiveTab('finalizar-turno');
+                                }}
+                                className="px-2.5 py-1 bg-blue-600/10 hover:bg-blue-600/20 text-blue-600 dark:text-blue-400 rounded-lg text-[10px] font-bold border border-blue-600/20 transition-colors flex items-center space-x-1"
+                                title="Registrar presentación del vehículo (HU-15)"
+                              >
+                                <Car className="w-3 h-3" />
+                                <span>Finalizar</span>
+                              </button>
+                            )}
                             <button
                               onClick={() => {
                                 selectVehicleForReception(t.vehiculoDominio);
@@ -1507,6 +1634,214 @@ export const RecepcionScreen: React.FC = () => {
                 </table>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* VISTA HU-15: FINALIZAR TURNO (REGISTRAR PRESENTACIÓN DEL VEHÍCULO) */}
+      {/* ============================================================ */}
+      {activeTab === 'finalizar-turno' && (
+        <div className="card-surface rounded-2xl p-6 shadow-sm space-y-6 animate-in fade-in duration-200">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200 dark:border-[#3A3A48]">
+            <div>
+              <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+                <Car className="w-5 h-5 text-red-600" />
+                <span>HU-15: Finalizar Turno (Registrar Presentación del Vehículo)</span>
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                Como responsable de recepción, quiero registrar que el cliente presentó el vehículo, para dar por finalizado el turno y generar el presupuesto.
+              </p>
+            </div>
+            <div className="flex items-center space-x-2">
+              <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800">
+                Regla: Turnos Confirmados del Día
+              </span>
+            </div>
+          </div>
+
+          {/* MENSAJES DE ESTADO (ÉXITO / ERROR) */}
+          {finError && (
+            <div className="p-4 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 text-red-700 dark:text-red-400 text-xs flex items-start space-x-3 animate-in fade-in">
+              <AlertCircle className="w-5 h-5 shrink-0 mt-0.5 text-red-600" />
+              <div>
+                <p className="font-bold text-sm">{finError}</p>
+                <p className="text-[11px] mt-1 text-red-600/90 dark:text-red-400/90">
+                  El turno permanece en su estado original y el registro de presupuesto no fue habilitado.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {finSuccess && (
+            <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 text-emerald-800 dark:text-emerald-300 text-xs flex items-start justify-between gap-4 animate-in fade-in">
+              <div className="flex items-start space-x-3">
+                <CheckCircle2 className="w-5 h-5 shrink-0 mt-0.5 text-emerald-600" />
+                <div className="space-y-1">
+                  <p className="font-bold text-sm">{finSuccess}</p>
+                  {finResult?.estado === 'Finalizado' && (
+                    <p className="text-[11px]">
+                      Estado del turno: <strong>"Finalizado"</strong> • Registro del presupuesto: <strong className="text-emerald-600 dark:text-emerald-400">HABILITADO</strong>
+                    </p>
+                  )}
+                </div>
+              </div>
+              {finResult?.presupuestoHabilitado && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('presupuesto')}
+                  className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold flex items-center space-x-1.5 shrink-0 shadow-sm"
+                >
+                  <FileCheck className="w-4 h-4" />
+                  <span>Registrar Presupuesto del Turno</span>
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* SELECTOR DE TURNO */}
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                1. Seleccione el Turno / Vehículo <span className="text-red-600">*</span>
+              </label>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const tConf = turnos.find(t => t.vehiculoDominio === 'AB123CD' && t.fecha === '15/11/2026') || turnos[0];
+                    if (tConf) {
+                      setFinTurnoId(tConf.id);
+                      setFinFechaHoy('15/11/2026');
+                      setFinHoraActual('09:00');
+                    }
+                  }}
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30"
+                >
+                  ⚡ Escenario 1 y 3: Juan Pérez (AB123CD - 15/11/2026 - Confirmado)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const tSol = turnos.find(t => t.estado === 'Solicitado') || turnos[turnos.length - 1];
+                    if (tSol) {
+                      setFinTurnoId(tSol.id);
+                      setFinFechaHoy('15/11/2026');
+                      setFinHoraActual('09:00');
+                    }
+                  }}
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30"
+                >
+                  ⚡ Escenario 2: Turno en estado "Solicitado"
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {turnos.map(t => {
+                const isSelected = t.id === finTurnoId;
+                return (
+                  <div
+                    key={t.id}
+                    onClick={() => setFinTurnoId(t.id)}
+                    className={`p-3.5 rounded-xl border text-xs cursor-pointer transition-all ${
+                      isSelected
+                        ? 'border-red-500 bg-red-50/40 dark:bg-red-950/20 ring-2 ring-red-500/20 shadow-sm'
+                        : 'border-slate-200 dark:border-[#3A3A48] bg-slate-50/50 dark:bg-[#1A1A22]/60 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-[#2A2A38]">
+                      <span className="font-mono font-bold text-red-600">#{t.nroTurno} • {t.vehiculoDominio}</span>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        t.estado === 'Finalizado'
+                          ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-400'
+                          : t.estado === 'Confirmado'
+                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-400'
+                          : t.estado === 'Ausente'
+                          ? 'bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-400'
+                          : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-400'
+                      }`}>
+                        {t.estado}
+                      </span>
+                    </div>
+                    <div className="mt-2 space-y-1">
+                      <div className="font-bold text-slate-900 dark:text-white">{t.clienteNombre || t.cliente}</div>
+                      <div className="text-[11px] text-slate-500">Motivo: {t.motivoConsulta}</div>
+                      <div className="text-[11px] font-mono font-bold text-slate-700 dark:text-slate-300">
+                        Fecha: {t.fecha} • Hora: {t.hora} hs ({t.sucursal})
+                      </div>
+                      {t.presupuestoHabilitado && (
+                        <div className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 pt-1">
+                          ✓ Registro de presupuesto habilitado
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* FECHA Y HORA DE REFERENCIA ("HOY") */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-slate-200 dark:border-[#3A3A48]">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                2. Fecha Actual ("Hoy" en simulación BDD)
+              </label>
+              <input
+                type="text"
+                value={finFechaHoy}
+                onChange={(e) => setFinFechaHoy(e.target.value)}
+                placeholder="DD/MM/YYYY"
+                className="app-input w-full px-3 py-2 text-xs font-mono font-bold"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                3. Hora Actual (para verificación de ausencia)
+              </label>
+              <input
+                type="text"
+                value={finHoraActual}
+                onChange={(e) => setFinHoraActual(e.target.value)}
+                placeholder="HH:mm"
+                className="app-input w-full px-3 py-2 text-xs font-mono font-bold"
+              />
+            </div>
+          </div>
+
+          {/* BOTONES DE ACCIÓN HU-15 */}
+          <div className="pt-4 border-t border-slate-200 dark:border-[#3A3A48] flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={handleFinalizarTurno}
+                disabled={isFinalizing || !finTurnoId}
+                className="px-5 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20 disabled:opacity-50 flex items-center space-x-2 transition-all"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Registrar que el cliente presentó el vehículo (Finalizar turno)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleMarcarAusente}
+                disabled={isFinalizing || !finTurnoId}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold bg-red-600/10 hover:bg-red-600/20 text-red-600 dark:text-red-400 border border-red-500/30 flex items-center space-x-2 transition-all"
+              >
+                <UserX className="w-4 h-4" />
+                <span>El vehículo no se presentó (Pasar a "Ausente")</span>
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('presupuesto')}
+              className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center space-x-1.5"
+            >
+              <FileCheck className="w-4 h-4 text-red-600" />
+              <span>Ir a Presupuesto</span>
+            </button>
           </div>
         </div>
       )}

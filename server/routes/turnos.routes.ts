@@ -7,6 +7,8 @@ import {
   consultarDisponibilidadHoraria,
   listarSucursales,
   confirmarTurno,
+  finalizarTurno,
+  registrarAusenciaTurno,
   testCleanupTurnos 
 } from '../controllers/turnos.controller';
 import { requireAuth, requireRole } from '../middleware/auth.middleware';
@@ -28,6 +30,14 @@ router.post('/public-register', registrarTurno);
 router.post('/confirmar', confirmarTurno);
 router.post('/:id/confirmar', confirmarTurno);
 router.post('/public-confirm', confirmarTurno);
+
+// HU-15: Finalizar turno (registrar presentación del vehículo) y control de ausencia
+router.post('/finalizar', finalizarTurno);
+router.post('/:id/finalizar', finalizarTurno);
+router.post('/presentacion', finalizarTurno);
+router.post('/ausente', registrarAusenciaTurno);
+router.post('/:id/ausente', registrarAusenciaTurno);
+router.post('/verificar-ausencias', registrarAusenciaTurno);
 
 // HU-12: Consultar / Listar turnos filtrando por estado, fecha y sucursal
 router.get('/', listarTurnos);

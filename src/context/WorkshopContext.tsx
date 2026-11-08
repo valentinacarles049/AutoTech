@@ -13,7 +13,9 @@ import {
   ConfirmarTurnoPayload,
   ConfirmarTurnoResult,
   FiltroTurnosParams,
-  ConsultarTurnosResult
+  ConsultarTurnosResult,
+  FinalizarTurnoPayload,
+  FinalizarTurnoResult
 } from '../types/autotech';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { getDefaultScreenForRole, isScreenAllowed } from '../utils/permissions';
@@ -223,6 +225,10 @@ interface WorkshopContextType {
 
   // HU-12: Consultar turnos por estado y fecha
   consultarTurnos: (filtros?: FiltroTurnosParams) => ConsultarTurnosResult;
+
+  // HU-15: Finalizar turno (registrar presentación del vehículo) y control de ausencia
+  finalizarTurno: (data: FinalizarTurnoPayload) => Promise<FinalizarTurnoResult>;
+  registrarAusenciaTurno: (data: FinalizarTurnoPayload) => Promise<FinalizarTurnoResult>;
 }
 
 export const defaultSucursales: Sucursal[] = [
@@ -2198,6 +2204,239 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
   };
 
+  // ============================================================
+  // HU-15: Finalizar Turno (registrar presentación del vehículo)
+  // ============================================================
+  const finalizarTurno = async (data: FinalizarTurnoPayload): Promise<FinalizarTurnoResult> => {
+    const targetId = String(data.turnoId || '').trim();
+    const targetNro = data.nroTurno ? Number(data.nroTurno) : null;
+    const targetPatente = String(data.vehiculoDominio || data.patente || '').trim().toUpperCase();
+    const rawHoy = String(data.fechaActual || '15/11/2026').trim();
+    const normHoy = normalizeContextDate(rawHoy);
+
+    // Intentar en el backend Express
+    try {
+      const response = await fetch('http://localhost:4000/api/turnos/finalizar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          turno_id: targetId || undefined,
+          nro_turno: targetNro || undefined,
+          patente: targetPatente || undefined,
+          fecha_actual: normHoy.ddmmyyyy,
+          hora_actual: data.horaActual,
+          vehiculo_presentado: data.vehiculoPresentado !== false
+        })
+      });
+
+      const resData = await response.json();
+
+      if (!response.ok) {
+        return {
+          success: false,
+          error: resData.error || resData.message || 'Sólo se pueden finalizar turnos confirmados del día',
+          message: resData.message || resData.error || 'Sólo se pueden finalizar turnos confirmados del día',
+          estado: resData.estado,
+          presupuestoHabilitado: false,
+          presupuesto_habilitado: false
+        };
+      }
+
+      if (resData.success && resData.turno) {
+        setTurnos(prev => prev.map(t => {
+          if (t.id === resData.turno.id || t.nroTurno === resData.turno.nro_turno) {
+            return {
+              ...t,
+              estado: resData.estado || 'Finalizado',
+              presupuestoHabilitado: Boolean(resData.presupuesto_habilitado ?? true),
+              vehiculoPresentado: Boolean(resData.vehiculo_presentado ?? true),
+              fechaFinalizacion: normHoy.ddmmyyyy
+            };
+          }
+          return t;
+        }));
+
+        return {
+          success: true,
+          message: resData.message || 'Turno finalizado correctamente. Queda habilitado el registro del presupuesto',
+          estado: resData.estado || 'Finalizado',
+          presupuestoHabilitado: Boolean(resData.presupuesto_habilitado ?? true),
+          presupuesto_habilitado: Boolean(resData.presupuesto_habilitado ?? true),
+          turno: resData.turno
+        };
+      }
+    } catch {
+      // Fallback local en modo offline / tests
+    }
+
+    // Buscar turno en estado local (priorizando turno del día si se busca por patente)
+    let targetTurno = turnos.find(t => {
+      if (targetId && t.id === targetId) return true;
+      if (targetNro && t.nroTurno === targetNro) return true;
+      if (targetPatente && t.vehiculoDominio.toUpperCase() === targetPatente && !targetId && !targetNro) {
+        return normalizeContextDate(t.fecha).iso === normHoy.iso;
+      }
+      return false;
+    });
+
+    if (!targetTurno) {
+      targetTurno = turnos.find(t => {
+        if (targetId && t.id === targetId) return true;
+        if (targetNro && t.nroTurno === targetNro) return true;
+        if (targetPatente && t.vehiculoDominio.toUpperCase() === targetPatente && !targetId && !targetNro) return true;
+        return false;
+      });
+    }
+
+    if (!targetTurno) {
+      return {
+        success: false,
+        error: 'Turno no encontrado',
+        message: 'Turno no encontrado',
+        presupuestoHabilitado: false,
+        presupuesto_habilitado: false
+      };
+    }
+
+    // Si se indica explícitamente que el vehículo NO se presentó -> Ausente (Criterio 4)
+    if (data.vehiculoPresentado === false) {
+      return registrarAusenciaTurno(data);
+    }
+
+    // Criterio 1: Sólo se finalizan turnos Confirmados del día
+    const normTurnoFecha = normalizeContextDate(targetTurno.fecha);
+    const esDelDia = normTurnoFecha.iso === normHoy.iso;
+    const estaConfirmado = targetTurno.estado.trim().toLowerCase() === 'confirmado';
+
+    if (!estaConfirmado || !esDelDia) {
+      return {
+        success: false,
+        error: 'Sólo se pueden finalizar turnos confirmados del día',
+        message: 'Sólo se pueden finalizar turnos confirmados del día',
+        estado: targetTurno.estado,
+        presupuestoHabilitado: false,
+        presupuesto_habilitado: false
+      };
+    }
+
+    // Criterio 2 y 3: El turno pasa a "Finalizado" y queda habilitado el registro del presupuesto
+    let updatedTurno: Turno = {
+      ...targetTurno,
+      estado: 'Finalizado',
+      presupuestoHabilitado: true,
+      vehiculoPresentado: true,
+      fechaFinalizacion: normHoy.ddmmyyyy
+    };
+
+    setTurnos(prev => prev.map(t => t.id === targetTurno!.id ? updatedTurno : t));
+
+    return {
+      success: true,
+      message: 'Turno finalizado correctamente. Queda habilitado el registro del presupuesto',
+      estado: 'Finalizado',
+      presupuestoHabilitado: true,
+      presupuesto_habilitado: true,
+      turno: updatedTurno
+    };
+  };
+
+  // HU-15 Criterio 4: Si llega la fecha y hora del turno y el vehículo no se presentó, el turno pasa a "Ausente"
+  const registrarAusenciaTurno = async (data: FinalizarTurnoPayload): Promise<FinalizarTurnoResult> => {
+    const targetId = String(data.turnoId || '').trim();
+    const targetNro = data.nroTurno ? Number(data.nroTurno) : null;
+    const targetPatente = String(data.vehiculoDominio || data.patente || '').trim().toUpperCase();
+    const rawHoy = String(data.fechaActual || '15/11/2026').trim();
+    const normHoy = normalizeContextDate(rawHoy);
+
+    try {
+      const response = await fetch('http://localhost:4000/api/turnos/ausente', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          turno_id: targetId || undefined,
+          nro_turno: targetNro || undefined,
+          patente: targetPatente || undefined,
+          fecha_actual: normHoy.ddmmyyyy,
+          hora_actual: data.horaActual || '09:00'
+        })
+      });
+
+      const resData = await response.json();
+      if (response.ok && resData.success && resData.turno) {
+        setTurnos(prev => prev.map(t => {
+          if (t.id === resData.turno.id || t.nroTurno === resData.turno.nro_turno) {
+            return {
+              ...t,
+              estado: 'Ausente',
+              presupuestoHabilitado: false,
+              vehiculoPresentado: false
+            };
+          }
+          return t;
+        }));
+
+        return {
+          success: true,
+          message: 'El turno pasó al estado "Ausente" por no presentación del vehículo',
+          estado: 'Ausente',
+          presupuestoHabilitado: false,
+          presupuesto_habilitado: false,
+          turno: resData.turno
+        };
+      }
+    } catch {
+      // Fallback local
+    }
+
+    let targetTurno = turnos.find(t => {
+      if (targetId && t.id === targetId) return true;
+      if (targetNro && t.nroTurno === targetNro) return true;
+      if (targetPatente && t.vehiculoDominio.toUpperCase() === targetPatente && !targetId && !targetNro) {
+        return normalizeContextDate(t.fecha).iso === normHoy.iso;
+      }
+      return false;
+    });
+
+    if (!targetTurno) {
+      targetTurno = turnos.find(t => {
+        if (targetId && t.id === targetId) return true;
+        if (targetNro && t.nroTurno === targetNro) return true;
+        if (targetPatente && t.vehiculoDominio.toUpperCase() === targetPatente && !targetId && !targetNro) return true;
+        return false;
+      });
+    }
+
+    if (!targetTurno) {
+      return {
+        success: false,
+        error: 'Turno no encontrado',
+        message: 'Turno no encontrado',
+        presupuestoHabilitado: false,
+        presupuesto_habilitado: false
+      };
+    }
+
+    const updatedTurno: Turno = {
+      ...targetTurno,
+      estado: 'Ausente',
+      presupuestoHabilitado: false,
+      vehiculoPresentado: false
+    };
+
+    setTurnos(prev => prev.map(t => t.id === targetTurno!.id ? updatedTurno : t));
+
+    return {
+      success: true,
+      message: 'El turno pasó al estado "Ausente" por no presentación del vehículo',
+      estado: 'Ausente',
+      presupuestoHabilitado: false,
+      presupuesto_habilitado: false,
+      turno: updatedTurno
+    };
+  };
+
   return (
     <WorkshopContext.Provider value={{
       isDark,
@@ -2242,7 +2481,9 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       consultarDisponibilidad,
       registerTurno,
       confirmarTurno,
-      consultarTurnos
+      consultarTurnos,
+      finalizarTurno,
+      registrarAusenciaTurno
     }}>
       {children}
     </WorkshopContext.Provider>

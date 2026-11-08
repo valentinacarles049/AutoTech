@@ -763,6 +763,298 @@ export const confirmarTurno = async (req: Request, res: Response): Promise<void>
 };
 
 /**
+ * HU-15: Finalizar turno (registrar presentación del vehículo)
+ * POST /api/turnos/finalizar
+ * POST /api/turnos/:id/finalizar
+ * POST /api/turnos/presentacion
+ * 
+ * Criterios de Aceptación:
+ * 1. Sólo se finalizan turnos Confirmados del día
+ * 2. El turno pasa a "Finalizado"
+ * 3. Queda habilitado el registro del presupuesto
+ * 4. Si llega la fecha y hora del turno y el vehículo no se presentó, el turno pasa a "Ausente"
+ */
+export const finalizarTurno = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const paramId = req.params?.id;
+    const {
+      id,
+      turno_id,
+      turnoId,
+      nro_turno,
+      nroTurno,
+      patente,
+      vehiculo_dominio,
+      vehiculoDominio,
+      cliente_dni,
+      clienteDni,
+      fecha_actual,
+      fechaActual,
+      hoy,
+      hora_actual,
+      horaActual,
+      fecha_hora_actual,
+      fechaHoraActual,
+      vehiculo_presentado,
+      vehiculoPresentado,
+      presento_vehiculo,
+      ausente
+    } = req.body;
+
+    const targetId = String(paramId || id || turno_id || turnoId || '').trim();
+    const targetNro = nro_turno || nroTurno ? Number(nro_turno || nroTurno) : null;
+    const targetPatente = String(patente || vehiculo_dominio || vehiculoDominio || '').trim().toUpperCase();
+    const targetDni = String(cliente_dni || clienteDni || '').trim().replace(/[\s-]/g, '');
+
+    // Determinar fecha de referencia ("hoy")
+    let rawHoy = String(fecha_actual || fechaActual || hoy || '').trim();
+    let rawHoraRef = String(hora_actual || horaActual || '').trim();
+
+    if (!rawHoy && (fecha_hora_actual || fechaHoraActual)) {
+      const parts = String(fecha_hora_actual || fechaHoraActual).trim().split(/[\sT]+/);
+      rawHoy = parts[0] || '';
+      if (!rawHoraRef && parts[1]) {
+        rawHoraRef = parts[1];
+      }
+    }
+
+    if (!rawHoy) {
+      const now = new Date();
+      rawHoy = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+    }
+
+    const normHoy = normalizeDate(rawHoy);
+
+    // Buscar turno objetivo
+    // Si se busca por patente y hay varios turnos para esa patente, priorizar el de la fecha actual ("hoy")
+    let turno = localTurnosSeed.find(t => {
+      if (targetId && t.id === targetId) return true;
+      if (targetNro && t.nro_turno === targetNro) return true;
+      if (targetPatente && t.vehiculo_dominio.toUpperCase() === targetPatente && !targetId && !targetNro) {
+        const tNorm = normalizeDate(t.fecha);
+        return tNorm.iso === normHoy.iso;
+      }
+      return false;
+    });
+
+    if (!turno) {
+      turno = localTurnosSeed.find(t => {
+        if (targetId && t.id === targetId) return true;
+        if (targetNro && t.nro_turno === targetNro) return true;
+        if (targetPatente && t.vehiculo_dominio.toUpperCase() === targetPatente && !targetId && !targetNro) return true;
+        if (targetDni && t.cliente_documento && t.cliente_documento.replace(/[\s-]/g, '') === targetDni && !targetId && !targetNro && !targetPatente) return true;
+        return false;
+      });
+    }
+
+    if (!turno) {
+      res.status(404).json({
+        success: false,
+        error: 'Turno no encontrado'
+      });
+      return;
+    }
+
+    // Comprobar si se está registrando ausencia (Criterio 4: El vehículo no se presentó al llegar la fecha y hora)
+    const isAusenteRequest =
+      vehiculo_presentado === false ||
+      vehiculoPresentado === false ||
+      presento_vehiculo === false ||
+      ausente === true;
+
+    if (isAusenteRequest) {
+      const refHora = normalizeTime(rawHoraRef || turno.hora);
+      const refDT = parseFullDateTime(normHoy.ddmmyyyy, refHora);
+      const turnoDT = parseFullDateTime(turno.fecha, turno.hora);
+
+      if (turno.estado === 'Confirmado' && (!refDT || !turnoDT || refDT.getTime() >= turnoDT.getTime())) {
+        turno.estado = 'Ausente';
+        turno.presupuesto_habilitado = false;
+        turno.vehiculo_presentado = false;
+
+        res.status(200).json({
+          success: true,
+          message: 'El turno pasó al estado Ausente',
+          estado: 'Ausente',
+          presupuesto_habilitado: false,
+          presupuestoHabilitado: false,
+          vehiculo_presentado: false,
+          vehiculoPresentado: false,
+          turno
+        });
+        return;
+      }
+    }
+
+    // Criterio 1: Sólo se finalizan turnos Confirmados del día
+    const normTurnoFecha = normalizeDate(turno.fecha);
+    const esDelDia = normTurnoFecha.iso === normHoy.iso;
+    const estaConfirmado = turno.estado.trim().toLowerCase() === 'confirmado';
+
+    if (!estaConfirmado || !esDelDia) {
+      res.status(400).json({
+        success: false,
+        error: 'Sólo se pueden finalizar turnos confirmados del día',
+        message: 'Sólo se pueden finalizar turnos confirmados del día',
+        estado: turno.estado,
+        presupuesto_habilitado: Boolean(turno.presupuesto_habilitado),
+        presupuestoHabilitado: Boolean(turno.presupuesto_habilitado)
+      });
+      return;
+    }
+
+    // Criterio 2: El turno pasa a "Finalizado"
+    turno.estado = 'Finalizado';
+    // Criterio 3: Queda habilitado el registro del presupuesto
+    turno.presupuesto_habilitado = true;
+    turno.vehiculo_presentado = true;
+    turno.fecha_finalizacion = normHoy.ddmmyyyy;
+
+    // Sincronizar con Supabase si está disponible
+    if (isSupabaseConnected && supabase) {
+      try {
+        await supabase
+          .from('turnos')
+          .update({
+            presupuesto_habilitado: true,
+            vehiculo_presentado: true,
+            fecha_finalizacion: normHoy.ddmmyyyy
+          })
+          .eq('nro_turno', turno.nro_turno);
+      } catch (dbErr) {
+        console.warn('[Backend Turnos] Error actualizando finalización en Supabase:', dbErr);
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Turno finalizado correctamente. Queda habilitado el registro del presupuesto',
+      estado: 'Finalizado',
+      presupuesto_habilitado: true,
+      presupuestoHabilitado: true,
+      vehiculo_presentado: true,
+      vehiculoPresentado: true,
+      turno: {
+        ...turno,
+        presupuestoHabilitado: true,
+        vehiculoPresentado: true
+      }
+    });
+  } catch (err: any) {
+    console.error('[Backend Turnos] Error al finalizar turno:', err);
+    res.status(500).json({ error: 'Error interno al finalizar el turno' });
+  }
+};
+
+/**
+ * HU-15 Criterio 4: Si llega la fecha y hora del turno y el vehículo no se presentó, el turno pasa a "Ausente"
+ * POST /api/turnos/ausente
+ * POST /api/turnos/:id/ausente
+ * POST /api/turnos/verificar-ausencias
+ */
+export const registrarAusenciaTurno = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const paramId = req.params?.id;
+    const {
+      id,
+      turno_id,
+      turnoId,
+      nro_turno,
+      nroTurno,
+      patente,
+      vehiculo_dominio,
+      vehiculoDominio,
+      fecha,
+      fecha_actual,
+      fechaActual,
+      hoy,
+      hora,
+      hora_actual,
+      horaActual,
+      fecha_hora_actual,
+      fechaHoraActual
+    } = req.body;
+
+    const targetId = String(paramId || id || turno_id || turnoId || '').trim();
+    const targetNro = nro_turno || nroTurno ? Number(nro_turno || nroTurno) : null;
+    const targetPatente = String(patente || vehiculo_dominio || vehiculoDominio || '').trim().toUpperCase();
+
+    let rawFecha = String(fecha_actual || fechaActual || hoy || fecha || '').trim();
+    let rawHora = String(hora_actual || horaActual || hora || '').trim();
+
+    if (fecha_hora_actual || fechaHoraActual) {
+      const parts = String(fecha_hora_actual || fechaHoraActual).trim().split(/[\sT]+/);
+      if (!rawFecha && parts[0]) rawFecha = parts[0];
+      if (!rawHora && parts[1]) rawHora = parts[1];
+    }
+
+    if (!rawFecha) {
+      const now = new Date();
+      rawFecha = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+      if (!rawHora) {
+        rawHora = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      }
+    }
+
+    const normRefFecha = normalizeDate(rawFecha);
+    const normRefHora = normalizeTime(rawHora || '09:00');
+    const refDT = parseFullDateTime(normRefFecha.ddmmyyyy, normRefHora);
+
+    // Buscar el turno específico o todos los turnos confirmados cuya fecha/hora haya llegado sin presentación
+    const candidatos = localTurnosSeed.filter(t => {
+      if (targetId && t.id === targetId) return true;
+      if (targetNro && t.nro_turno === targetNro) return true;
+      if (targetPatente && t.vehiculo_dominio.toUpperCase() === targetPatente && !targetId && !targetNro) {
+        const tNorm = normalizeDate(t.fecha);
+        return !normRefFecha.iso || tNorm.iso === normRefFecha.iso;
+      }
+      if (!targetId && !targetNro && !targetPatente) {
+        return t.estado === 'Confirmado';
+      }
+      return false;
+    });
+
+    if (candidatos.length === 0) {
+      res.status(404).json({
+        success: false,
+        error: 'Turno no encontrado'
+      });
+      return;
+    }
+
+    const actualizados: LocalTurno[] = [];
+
+    candidatos.forEach(t => {
+      const tDT = parseFullDateTime(t.fecha, t.hora);
+      const llegoFechaHora = !refDT || !tDT || refDT.getTime() >= tDT.getTime();
+      if (t.estado === 'Confirmado' && !t.vehiculo_presentado && llegoFechaHora) {
+        t.estado = 'Ausente';
+        t.presupuesto_habilitado = false;
+        t.vehiculo_presentado = false;
+        actualizados.push(t);
+      }
+    });
+
+    const turnoPrincipal = actualizados[0] || candidatos[0];
+
+    res.status(200).json({
+      success: true,
+      message: 'El turno pasa al estado "Ausente"',
+      estado: turnoPrincipal.estado,
+      presupuesto_habilitado: Boolean(turnoPrincipal.presupuesto_habilitado),
+      presupuestoHabilitado: Boolean(turnoPrincipal.presupuesto_habilitado),
+      turno: turnoPrincipal,
+      turnosActualizados: actualizados.length
+    });
+  } catch (err: any) {
+    console.error('[Backend Turnos] Error al registrar ausencia:', err);
+    res.status(500).json({ error: 'Error interno al verificar ausencia del turno' });
+  }
+};
+
+export const verificarAusenciaTurnos = registrarAusenciaTurno;
+
+/**
  * Endpoint de limpieza para tests automatizados BDD
  */
 export const testCleanupTurnos = async (req: Request, res: Response): Promise<void> => {

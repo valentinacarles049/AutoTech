@@ -102,7 +102,7 @@ export interface UpdateVehicleResult {
 // ==========================================
 // 3. ESTADO TURNO (UML MVP: descripcionEstado - HU-09: 'Solicitado')
 // ==========================================
-export type TurnoEstadoNombre = 'Solicitado' | 'Pendiente' | 'Confirmado (24hs)' | 'Confirmado' | 'En Taller' | 'Cancelado';
+export type TurnoEstadoNombre = 'Solicitado' | 'Pendiente' | 'Confirmado (24hs)' | 'Confirmado' | 'En Taller' | 'Cancelado' | 'Finalizado' | 'Ausente';
 
 export interface EstadoTurno {
   id: string;
@@ -177,6 +177,10 @@ export interface Turno {
     destinatario?: string;
     mensaje: string;
   } | null;
+  // HU-15: Finalizar turno (registrar presentación del vehículo)
+  presupuestoHabilitado?: boolean;
+  vehiculoPresentado?: boolean;
+  fechaFinalizacion?: string | null;
 }
 
 // HU-12: Consultar turnos por estado y fecha
@@ -219,6 +223,27 @@ export interface ConfirmarTurnoResult {
     destinatario?: string;
     mensaje: string;
   };
+}
+
+// HU-15: Finalizar turno (registrar presentación del vehículo)
+export interface FinalizarTurnoPayload {
+  turnoId?: string;
+  nroTurno?: number;
+  vehiculoDominio?: string;
+  patente?: string;
+  fechaActual?: string;
+  horaActual?: string;
+  vehiculoPresentado?: boolean;
+}
+
+export interface FinalizarTurnoResult {
+  success: boolean;
+  message: string;
+  error?: string;
+  estado?: TurnoEstadoNombre;
+  presupuestoHabilitado?: boolean;
+  presupuesto_habilitado?: boolean;
+  turno?: Turno;
 }
 
 // ==========================================

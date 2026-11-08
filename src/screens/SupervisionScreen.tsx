@@ -239,6 +239,8 @@ export const SupervisionScreen: React.FC = () => {
               <option value="Todos">Todos</option>
               <option value="Confirmado">Confirmado</option>
               <option value="Solicitado">Solicitado</option>
+              <option value="Finalizado">Finalizado</option>
+              <option value="Ausente">Ausente</option>
               <option value="En Taller">En Taller</option>
               <option value="Cancelado">Cancelado</option>
             </select>
