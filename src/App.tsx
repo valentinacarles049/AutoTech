@@ -21,7 +21,7 @@ export const AppContent: React.FC = () => {
     if (isAuthenticated && user?.role) {
       if (!isScreenAllowed(currentScreen, user.role)) {
         const fromUrl = typeof window !== 'undefined' ? window.location.pathname.replace(/^\/+/, '').toLowerCase() : '';
-        if (!fromUrl || fromUrl === 'dashboard') {
+        if (!fromUrl) {
           const defaultScreen = getDefaultScreenForRole(user.role);
           setCurrentScreen(defaultScreen);
         }
@@ -35,7 +35,7 @@ export const AppContent: React.FC = () => {
   }
 
   const fromUrl = typeof window !== 'undefined' ? window.location.pathname.replace(/^\/+/, '').toLowerCase() : '';
-  const isUnauthorizedDefault = (!fromUrl || fromUrl === 'dashboard') && !isScreenAllowed(currentScreen, user?.role);
+  const isUnauthorizedDefault = !fromUrl && !isScreenAllowed(currentScreen, user?.role);
 
   // Un usuario sin permiso que accede explícitamente a una URL protegida ve "Acceso denegado"
   if (!isScreenAllowed(currentScreen, user?.role) && !isUnauthorizedDefault) {

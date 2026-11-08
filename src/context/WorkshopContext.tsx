@@ -845,7 +845,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             setIsAuthenticated(true);
             localStorage.setItem('autotech_session', JSON.stringify(authUser));
             const fromUrl = getScreenFromUrl();
-            if (!fromUrl || !isScreenAllowed(fromUrl, authUser.role)) {
+            if (!fromUrl) {
               setCurrentScreen(getDefaultScreenForRole(authUser.role));
             }
             return;
