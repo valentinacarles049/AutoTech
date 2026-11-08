@@ -8,6 +8,7 @@ import {
   listarSucursales,
   confirmarTurno,
   cancelarTurno,
+  modificarTurno,
   finalizarTurno,
   registrarAusenciaTurno,
   testCleanupTurnos 
@@ -41,6 +42,13 @@ router.post('/public-confirm', confirmarTurno);
 router.post('/cancelar', cancelarTurno);
 router.post('/:id/cancelar', cancelarTurno);
 router.post('/public-cancel', cancelarTurno);
+
+// HU-13: Modificar turno (Responsable de Recepción)
+router.put('/modificar', modificarTurno);
+router.post('/modificar', modificarTurno);
+router.put('/:id', modificarTurno);
+router.post('/:id/modificar', modificarTurno);
+router.post('/public-modify', modificarTurno);
 
 // HU-15: Finalizar turno (registrar presentación del vehículo) y control de ausencia
 router.post('/finalizar', finalizarTurno);

@@ -103,7 +103,7 @@ export interface UpdateVehicleResult {
 // ==========================================
 // 3. ESTADO TURNO (UML MVP: descripcionEstado - HU-09: 'Solicitado')
 // ==========================================
-export type TurnoEstadoNombre = 'Solicitado' | 'Pendiente' | 'Confirmado (24hs)' | 'Confirmado' | 'En Taller' | 'Cancelado' | 'Finalizado' | 'Ausente';
+export type TurnoEstadoNombre = 'Solicitado' | 'Pendiente' | 'Confirmado (24hs)' | 'Confirmado' | 'Reprogramado' | 'En Taller' | 'Cancelado' | 'Finalizado' | 'Ausente';
 
 export interface EstadoTurno {
   id: string;
@@ -183,6 +183,11 @@ export interface Turno {
   fechaCancelacion?: string | null;
   horaCancelacion?: string | null;
   canceladoPor?: string | null;
+  // HU-13: Modificar turno
+  historialEstados?: string[];
+  historial_estados?: string[];
+  fechaModificacion?: string | null;
+  horaModificacion?: string | null;
   // HU-15: Finalizar turno (registrar presentación del vehículo)
   presupuestoHabilitado?: boolean;
   vehiculoPresentado?: boolean;
@@ -252,6 +257,37 @@ export interface CancelarTurnoResult {
   motivoCancelacion?: string;
   turno?: Turno;
   horarioLiberado?: {
+    sucursal: string;
+    fecha: string;
+    hora: string;
+    disponible: boolean;
+  };
+}
+
+// HU-13: Modificar turno
+export interface ModificarTurnoPayload {
+  turnoId?: string;
+  nroTurno?: number;
+  patente?: string;
+  vehiculoDominio?: string;
+  clienteNombre?: string;
+  fechaActual?: string;
+  horaActual?: string;
+  nuevaFecha: string;
+  nuevoHorario: string;
+  nuevaSucursal?: string;
+}
+
+export interface ModificarTurnoResult {
+  success: boolean;
+  message: string;
+  error?: string;
+  turno?: Turno;
+  fecha?: string;
+  hora?: string;
+  estado?: string;
+  historialEstados?: string[];
+  horarioAnteriorLiberado?: {
     sucursal: string;
     fecha: string;
     hora: string;

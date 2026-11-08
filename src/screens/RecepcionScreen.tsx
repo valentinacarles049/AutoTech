@@ -26,7 +26,9 @@ import {
   RotateCcw,
   UserX,
   Ban,
-  XCircle
+  XCircle,
+  CalendarClock,
+  Edit3
 } from 'lucide-react';
 import { useWorkshop } from '../context/WorkshopContext';
 import { 
@@ -36,6 +38,7 @@ import {
   DisponibilidadHorariaResult, 
   ConfirmarTurnoResult, 
   CancelarTurnoResult,
+  ModificarTurnoResult,
   FinalizarTurnoResult,
   DetallePresupuesto,
   Presupuesto,
@@ -62,6 +65,7 @@ export const RecepcionScreen: React.FC = () => {
     registerTurno,
     confirmarTurno,
     cancelarTurno,
+    modificarTurno,
     consultarTurnos,
     finalizarTurno,
     registrarAusenciaTurno,
@@ -185,6 +189,58 @@ export const RecepcionScreen: React.FC = () => {
       setCancelModalError(err.message || 'Error al cancelar turno');
     } finally {
       setIsCanceling(false);
+    }
+  };
+
+  // Estados para HU-13: Modificar Turno
+  const [turnoToModify, setTurnoToModify] = useState<Turno | null>(null);
+  const [modNuevaFecha, setModNuevaFecha] = useState<string>('16/11/2026');
+  const [modNuevoHorario, setModNuevoHorario] = useState<string>('10:00');
+  const [modNuevaSucursal, setModNuevaSucursal] = useState<string>('');
+  const [modError, setModError] = useState<string | null>(null);
+  const [modSuccess, setModSuccess] = useState<string | null>(null);
+  const [isModifying, setIsModifying] = useState<boolean>(false);
+
+  const handleModificarTurno = async () => {
+    if (!turnoToModify) return;
+    setModError(null);
+    setModSuccess(null);
+
+    const f = modNuevaFecha.trim();
+    const h = modNuevoHorario.trim();
+    if (!f || !h) {
+      setModError('La fecha y el horario son obligatorios');
+      return;
+    }
+
+    setIsModifying(true);
+    try {
+      const res = await modificarTurno({
+        turnoId: turnoToModify.id,
+        nroTurno: turnoToModify.nroTurno,
+        patente: turnoToModify.vehiculoDominio,
+        clienteNombre: turnoToModify.clienteNombre,
+        fechaActual: turnoToModify.fecha,
+        horaActual: turnoToModify.hora,
+        nuevaFecha: f,
+        nuevoHorario: h,
+        nuevaSucursal: modNuevaSucursal || turnoToModify.sucursal
+      });
+
+      if (res.success) {
+        setModSuccess(`Turno modificado correctamente para el ${res.fecha || f} a las ${res.hora || h} hs. Historial: ${(res.historialEstados || ['Reprogramado', 'Confirmado']).join(' ➔ ')}`);
+        setTimeout(() => {
+          setTurnoToModify(null);
+          setModError(null);
+          setModSuccess(null);
+        }, 1500);
+      } else {
+        setModError(res.error || res.message || 'Error al modificar el turno');
+      }
+    } catch (err: any) {
+      setModError(err.message || 'Error al modificar el turno');
+    } finally {
+      setIsModifying(false);
     }
   };
 
@@ -1855,6 +1911,23 @@ export const RecepcionScreen: React.FC = () => {
                             {(t.estado === 'Solicitado' || t.estado === 'Confirmado') && (
                               <button
                                 onClick={() => {
+                                  setTurnoToModify(t);
+                                  setModNuevaFecha('16/11/2026');
+                                  setModNuevoHorario('10:00');
+                                  setModNuevaSucursal(t.sucursal);
+                                  setModError(null);
+                                  setModSuccess(null);
+                                }}
+                                className="px-2.5 py-1 bg-amber-600/10 hover:bg-amber-600/20 text-amber-600 dark:text-amber-400 rounded-lg text-[10px] font-bold border border-amber-600/20 transition-colors flex items-center space-x-1"
+                                title="Modificar fecha u horario del turno (HU-13)"
+                              >
+                                <CalendarClock className="w-3 h-3" />
+                                <span>Modificar</span>
+                              </button>
+                            )}
+                            {(t.estado === 'Solicitado' || t.estado === 'Confirmado') && (
+                              <button
+                                onClick={() => {
                                   setTurnoToCancel(t);
                                   setMotivoCancelacionInput('');
                                   setCancelModalError(null);
@@ -2550,6 +2623,148 @@ export const RecepcionScreen: React.FC = () => {
               >
                 <Ban className="w-3.5 h-3.5" />
                 <span>{isCanceling ? 'Cancelando...' : 'Cancelar turno'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* MODAL HU-13: MODIFICAR TURNO */}
+      {/* ============================================================ */}
+      {turnoToModify && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="card-surface w-full max-w-lg rounded-2xl p-6 shadow-2xl border border-slate-200 dark:border-[#3A3A48] space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-[#3A3A48]">
+              <div className="flex items-center space-x-2 text-amber-600">
+                <CalendarClock className="w-5 h-5" />
+                <h3 className="font-bold text-sm text-slate-900 dark:text-white">
+                  Modificar Turno #{turnoToModify.nroTurno}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTurnoToModify(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-[#1A1A22] border border-slate-200 dark:border-[#2A2A38] text-xs space-y-1">
+              <div><strong>Cliente:</strong> {turnoToModify.clienteNombre || turnoToModify.cliente}</div>
+              <div><strong>Vehículo:</strong> <span className="font-mono">{turnoToModify.vehiculoDominio || turnoToModify.patente}</span></div>
+              <div><strong>Sucursal actual:</strong> {turnoToModify.sucursal}</div>
+              <div><strong>Fecha y Hora actual:</strong> {turnoToModify.fecha} a las {turnoToModify.hora} hs</div>
+              <div><strong>Estado Actual:</strong> <span className="font-bold text-emerald-600">{turnoToModify.estado}</span></div>
+              {turnoToModify.historialEstados && turnoToModify.historialEstados.length > 0 && (
+                <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                  <strong>Historial de estados:</strong> {turnoToModify.historialEstados.join(' ➔ ')}
+                </div>
+              )}
+            </div>
+
+            {modError && (
+              <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 text-red-700 dark:text-red-400 text-xs flex items-center space-x-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+                <span>{modError}</span>
+              </div>
+            )}
+
+            {modSuccess && (
+              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 text-emerald-700 dark:text-emerald-400 text-xs flex items-center space-x-2">
+                <Check className="w-4 h-4 shrink-0 text-emerald-600" />
+                <span className="font-bold">{modSuccess}</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Nueva Fecha <span className="text-red-600">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={modNuevaFecha}
+                  onChange={(e) => setModNuevaFecha(e.target.value)}
+                  placeholder="DD/MM/YYYY o YYYY-MM-DD"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-[#3A3A48] bg-white dark:bg-[#1A1A22] text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Nuevo Horario <span className="text-red-600">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={modNuevoHorario}
+                  onChange={(e) => setModNuevoHorario(e.target.value)}
+                  placeholder="HH:mm (ej: 10:00)"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-[#3A3A48] bg-white dark:bg-[#1A1A22] text-slate-900 dark:text-white"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                Sucursal
+              </label>
+              <select
+                value={modNuevaSucursal || turnoToModify.sucursal}
+                onChange={(e) => setModNuevaSucursal(e.target.value)}
+                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-[#3A3A48] bg-white dark:bg-[#1A1A22] text-slate-900 dark:text-white"
+              >
+                {sucursales.map(s => (
+                  <option key={s.id} value={s.nombre}>{s.nombre} ({s.horarioApertura} a {s.horarioCierre})</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1.5 pt-1">
+              <span className="text-[10px] text-slate-500 font-semibold uppercase">Accesos rápidos BDD (HU-13):</span>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setModNuevaFecha('16/11/2026');
+                    setModNuevoHorario('10:00');
+                    setModNuevaSucursal('Centro');
+                  }}
+                  className="px-2 py-1 rounded-lg text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100"
+                >
+                  "16/11/2026 10:00" (Horario disponible)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setModNuevaFecha('16/11/2026');
+                    setModNuevoHorario('10:00');
+                    setModNuevaSucursal('Centro');
+                  }}
+                  className="px-2 py-1 rounded-lg text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200"
+                >
+                  "16/11/2026 10:00" (Prueba Colisión)
+                </button>
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-slate-200 dark:border-[#3A3A48] flex items-center justify-end space-x-2">
+              <button
+                type="button"
+                onClick={() => setTurnoToModify(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                Cerrar
+              </button>
+              <button
+                type="button"
+                onClick={handleModificarTurno}
+                disabled={isModifying}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-md shadow-amber-600/20 disabled:opacity-50 flex items-center space-x-1.5 transition-all"
+              >
+                <CalendarClock className="w-3.5 h-3.5" />
+                <span>{isModifying ? 'Guardando...' : 'Guardar cambios'}</span>
               </button>
             </div>
           </div>

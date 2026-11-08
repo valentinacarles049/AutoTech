@@ -8,12 +8,15 @@ import {
   Empleado, 
   RoleName, 
   Turno, 
+  TurnoEstadoNombre,
   Sucursal, 
   DisponibilidadHorariaResult,
   ConfirmarTurnoPayload,
   ConfirmarTurnoResult,
   CancelarTurnoPayload,
   CancelarTurnoResult,
+  ModificarTurnoPayload,
+  ModificarTurnoResult,
   FiltroTurnosParams,
   ConsultarTurnosResult,
   FinalizarTurnoPayload,
@@ -233,6 +236,9 @@ interface WorkshopContextType {
 
   // HU-12: Cancelar turno
   cancelarTurno: (data: CancelarTurnoPayload) => Promise<CancelarTurnoResult>;
+
+  // HU-13: Modificar turno
+  modificarTurno: (data: ModificarTurnoPayload) => Promise<ModificarTurnoResult>;
 
   // HU-12: Consultar turnos por estado y fecha
   consultarTurnos: (filtros?: FiltroTurnosParams) => ConsultarTurnosResult;
@@ -2273,6 +2279,225 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   // ============================================================
+  // HU-13: Modificar Turno (Responsable de Recepción)
+  // ============================================================
+  const modificarTurno = async (data: ModificarTurnoPayload): Promise<ModificarTurnoResult> => {
+    const rawNuevaFecha = String(data.nuevaFecha || '').trim();
+    const rawNuevoHorario = String(data.nuevoHorario || '').trim();
+
+    if (!rawNuevaFecha || !rawNuevoHorario) {
+      return {
+        success: false,
+        error: 'La nueva fecha y el nuevo horario son obligatorios',
+        message: 'La nueva fecha y el nuevo horario son obligatorios'
+      };
+    }
+
+    try {
+      const response = await fetch('http://localhost:4000/api/turnos/modificar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          turno_id: data.turnoId,
+          nro_turno: data.nroTurno,
+          patente: data.patente || data.vehiculoDominio,
+          cliente_nombre: data.clienteNombre,
+          fecha_actual: data.fechaActual,
+          hora_actual: data.horaActual,
+          nueva_fecha: rawNuevaFecha,
+          nuevo_horario: rawNuevoHorario,
+          nueva_sucursal: data.nuevaSucursal
+        })
+      });
+
+      const resData = await response.json();
+      if (!response.ok) {
+        return {
+          success: false,
+          error: resData.error || resData.message || 'Error al modificar turno',
+          message: resData.message || resData.error || 'Error al modificar turno',
+          estado: resData.estado
+        };
+      }
+
+      if (resData.success && resData.turno) {
+        setTurnos(prev => prev.map(t => {
+          if (t.id === resData.turno.id || t.nroTurno === resData.turno.nro_turno) {
+            return {
+              ...t,
+              fecha: resData.fecha || resData.turno.fecha,
+              hora: resData.hora || resData.turno.hora,
+              sucursal: resData.turno.sucursal || t.sucursal,
+              estado: resData.turno.estado || resData.estado || t.estado,
+              historialEstados: resData.historial_estados || resData.turno.historial_estados || t.historialEstados,
+              fechaModificacion: resData.turno.fecha_modificacion,
+              horaModificacion: resData.turno.hora_modificacion
+            };
+          }
+          return t;
+        }));
+
+        return {
+          success: true,
+          message: resData.message || 'Turno modificado correctamente',
+          turno: resData.turno,
+          fecha: resData.fecha,
+          hora: resData.hora,
+          estado: resData.estado,
+          historialEstados: resData.historial_estados,
+          horarioAnteriorLiberado: resData.horario_anterior_liberado
+        };
+      }
+    } catch {
+      // Fallback local en modo offline / tests
+    }
+
+    const normDate = (str: string) => {
+      const clean = str.trim();
+      const slash = clean.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (slash) {
+        const d = slash[1].padStart(2, '0');
+        const m = slash[2].padStart(2, '0');
+        const y = slash[3];
+        return { ddmmyyyy: `${d}/${m}/${y}`, iso: `${y}-${m}-${d}` };
+      }
+      const dash = clean.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+      if (dash) {
+        const y = dash[1];
+        const m = dash[2].padStart(2, '0');
+        const d = dash[3].padStart(2, '0');
+        return { ddmmyyyy: `${d}/${m}/${y}`, iso: `${y}-${m}-${d}` };
+      }
+      return { ddmmyyyy: clean, iso: clean };
+    };
+
+    const normTime = (str: string) => {
+      const match = str.trim().match(/^(\d{1,2}):(\d{2})/);
+      if (match) {
+        return `${match[1].padStart(2, '0')}:${match[2]}`;
+      }
+      return str.trim();
+    };
+
+    // Fallback local: Buscar el turno
+    const targetTurno = turnos.find(t => {
+      if (data.turnoId && t.id === data.turnoId) return true;
+      if (data.nroTurno && t.nroTurno === data.nroTurno) return true;
+      if (data.fechaActual && data.horaActual && data.clienteNombre) {
+        const ntDate = normDate(t.fecha);
+        const nqDate = normDate(data.fechaActual);
+        const sameD = ntDate.ddmmyyyy === nqDate.ddmmyyyy || ntDate.iso === nqDate.iso;
+        const sameH = normTime(t.hora) === normTime(data.horaActual);
+        const sameC = t.clienteNombre?.toLowerCase().includes(data.clienteNombre.toLowerCase());
+        if (sameD && sameH && sameC) return true;
+      }
+      const targetPlaca = data.patente || data.vehiculoDominio;
+      if (targetPlaca && t.vehiculoDominio.toUpperCase() === targetPlaca.toUpperCase()) {
+        if (!data.turnoId && !data.nroTurno) return true;
+      }
+      return false;
+    });
+
+    if (!targetTurno) {
+      return { success: false, error: 'Turno no encontrado', message: 'Turno no encontrado' };
+    }
+
+    // Criterio 1: Sólo se modifican turnos Solicitados o Confirmados
+    if (targetTurno.estado !== 'Solicitado' && targetTurno.estado !== 'Confirmado' && targetTurno.estado !== 'Confirmado (24hs)') {
+      return {
+        success: false,
+        error: 'Sólo se modifican turnos Solicitados o Confirmados',
+        message: 'Sólo se modifican turnos Solicitados o Confirmados',
+        estado: targetTurno.estado
+      };
+    }
+
+    const normNewD = normDate(rawNuevaFecha);
+    const normNewH = normTime(rawNuevoHorario);
+    const targetSucursal = data.nuevaSucursal || targetTurno.sucursal;
+
+    // Criterio 2: El nuevo horario debe estar disponible
+    const collision = turnos.some(t => {
+      if (t.id === targetTurno.id) return false;
+      if (t.nroTurno === targetTurno.nroTurno) return false;
+      const tD = normDate(t.fecha);
+      const sameD = tD.ddmmyyyy === normNewD.ddmmyyyy || tD.iso === normNewD.iso;
+      const sameH = normTime(t.hora) === normNewH;
+      const sameS = t.sucursal.toLowerCase() === targetSucursal.toLowerCase();
+      const activeState = t.estado === 'Solicitado' || t.estado === 'Confirmado' || t.estado === 'Confirmado (24hs)';
+      return sameD && sameH && sameS && activeState;
+    });
+
+    if (collision) {
+      return {
+        success: false,
+        error: 'El horario seleccionado no está disponible. Seleccione otro horario',
+        message: 'El horario seleccionado no está disponible. Seleccione otro horario',
+        estado: targetTurno.estado
+      };
+    }
+
+    const regD = String(new Date().getDate()).padStart(2, '0');
+    const regM = String(new Date().getMonth() + 1).padStart(2, '0');
+    const regY = new Date().getFullYear();
+    const regH = String(new Date().getHours()).padStart(2, '0');
+    const regMin = String(new Date().getMinutes()).padStart(2, '0');
+    const fechaMod = `${regD}/${regM}/${regY}`;
+    const horaMod = `${regH}:${regMin}`;
+
+    const prevHist = targetTurno.historialEstados || [targetTurno.estado];
+    let newHist: string[];
+    let finalEstado: TurnoEstadoNombre;
+
+    // Criterio 3: Si el turno estaba Confirmado pasa a "Reprogramado" hasta reasignarle fecha y horario, y vuelve a "Confirmado"
+    if (targetTurno.estado === 'Confirmado' || targetTurno.estado === 'Confirmado (24hs)') {
+      newHist = [...prevHist, 'Reprogramado', 'Confirmado'];
+      finalEstado = 'Confirmado';
+    } else {
+      newHist = [...prevHist, 'Reprogramado', 'Solicitado'];
+      finalEstado = 'Solicitado';
+    }
+
+    const anteriorFecha = targetTurno.fecha;
+    const anteriorHora = targetTurno.hora;
+
+    let updatedTurno: Turno | undefined;
+    setTurnos(prev => prev.map(t => {
+      if (t.id === targetTurno.id) {
+        updatedTurno = {
+          ...t,
+          fecha: normNewD.ddmmyyyy,
+          hora: normNewH,
+          sucursal: targetSucursal,
+          estado: finalEstado,
+          historialEstados: newHist,
+          fechaModificacion: fechaMod,
+          horaModificacion: horaMod
+        };
+        return updatedTurno;
+      }
+      return t;
+    }));
+
+    return {
+      success: true,
+      message: 'Turno modificado correctamente',
+      turno: updatedTurno || targetTurno,
+      fecha: normNewD.ddmmyyyy,
+      hora: normNewH,
+      estado: finalEstado,
+      historialEstados: newHist,
+      horarioAnteriorLiberado: {
+        sucursal: targetTurno.sucursal,
+        fecha: anteriorFecha,
+        hora: anteriorHora,
+        disponible: true
+      }
+    };
+  };
+
+  // ============================================================
   // HU-12: Consultar turnos por estado, rango de fechas y sucursal
   // ============================================================
   const consultarTurnos = (filtros: FiltroTurnosParams = {}): ConsultarTurnosResult => {
@@ -3024,6 +3249,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       registerTurno,
       confirmarTurno,
       cancelarTurno,
+      modificarTurno,
       consultarTurnos,
       finalizarTurno,
       registrarAusenciaTurno,
