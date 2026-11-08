@@ -12,6 +12,8 @@ import {
   DisponibilidadHorariaResult,
   ConfirmarTurnoPayload,
   ConfirmarTurnoResult,
+  CancelarTurnoPayload,
+  CancelarTurnoResult,
   FiltroTurnosParams,
   ConsultarTurnosResult,
   FinalizarTurnoPayload,
@@ -228,6 +230,9 @@ interface WorkshopContextType {
 
   // HU-11: Confirmar turno
   confirmarTurno: (data: ConfirmarTurnoPayload) => Promise<ConfirmarTurnoResult>;
+
+  // HU-12: Cancelar turno
+  cancelarTurno: (data: CancelarTurnoPayload) => Promise<CancelarTurnoResult>;
 
   // HU-12: Consultar turnos por estado y fecha
   consultarTurnos: (filtros?: FiltroTurnosParams) => ConsultarTurnosResult;
@@ -2133,6 +2138,141 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   // ============================================================
+  // HU-12: Cancelar Turno (Cliente o Responsable de Recepción)
+  // ============================================================
+  const cancelarTurno = async (data: CancelarTurnoPayload): Promise<CancelarTurnoResult> => {
+    const rawMotivo = String(data.motivo || '').trim();
+    if (!rawMotivo) {
+      return {
+        success: false,
+        error: 'El motivo de cancelación es obligatorio',
+        message: 'El motivo de cancelación es obligatorio'
+      };
+    }
+
+    try {
+      const response = await fetch('http://localhost:4000/api/turnos/cancelar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          turno_id: data.turnoId,
+          nro_turno: data.nroTurno,
+          patente: data.patente || data.vehiculoDominio,
+          cliente_nombre: data.clienteNombre,
+          fecha: data.fecha,
+          hora: data.hora,
+          motivo: rawMotivo,
+          cancelado_por: data.canceladoPor
+        })
+      });
+
+      const resData = await response.json();
+      if (!response.ok) {
+        return {
+          success: false,
+          error: resData.error || resData.message || 'Error al cancelar turno',
+          message: resData.message || resData.error || 'Error al cancelar turno',
+          estado: resData.estado
+        };
+      }
+
+      if (resData.success && resData.turno) {
+        setTurnos(prev => prev.map(t => {
+          if (t.id === resData.turno.id || t.nroTurno === resData.turno.nro_turno) {
+            return {
+              ...t,
+              estado: 'Cancelado',
+              motivoCancelacion: rawMotivo,
+              fechaCancelacion: resData.turno.fecha_cancelacion,
+              horaCancelacion: resData.turno.hora_cancelacion,
+              canceladoPor: resData.turno.cancelado_por
+            };
+          }
+          return t;
+        }));
+
+        return {
+          success: true,
+          message: resData.message || 'Turno cancelado exitosamente',
+          estado: 'Cancelado',
+          motivoCancelacion: rawMotivo,
+          turno: resData.turno,
+          horarioLiberado: resData.horario_liberado
+        };
+      }
+    } catch {
+      // Fallback local en modo offline
+    }
+
+    // Fallback local
+    const target = turnos.find(t => {
+      if (data.turnoId && t.id === data.turnoId) return true;
+      if (data.nroTurno && t.nroTurno === data.nroTurno) return true;
+      const targetPlaca = data.patente || data.vehiculoDominio;
+      if (targetPlaca && t.vehiculoDominio.toUpperCase() === targetPlaca.toUpperCase()) {
+        if (!data.turnoId && !data.nroTurno) return true;
+      }
+      return false;
+    });
+
+    if (!target) {
+      return { success: false, error: 'Turno no encontrado', message: 'Turno no encontrado' };
+    }
+
+    if (target.estado !== 'Solicitado' && target.estado !== 'Confirmado' && target.estado !== 'Confirmado (24hs)') {
+      return {
+        success: false,
+        error: target.estado === 'Cancelado'
+          ? 'El turno ya se encuentra cancelado'
+          : 'Sólo se cancelan turnos en estado Solicitado o Confirmado',
+        message: target.estado === 'Cancelado'
+          ? 'El turno ya se encuentra cancelado'
+          : 'Sólo se cancelan turnos en estado Solicitado o Confirmado',
+        estado: target.estado
+      };
+    }
+
+    const regD = String(new Date().getDate()).padStart(2, '0');
+    const regM = String(new Date().getMonth() + 1).padStart(2, '0');
+    const regY = new Date().getFullYear();
+    const regH = String(new Date().getHours()).padStart(2, '0');
+    const regMin = String(new Date().getMinutes()).padStart(2, '0');
+    const fechaConf = `${regD}/${regM}/${regY}`;
+    const horaConf = `${regH}:${regMin}`;
+
+    let updatedTurno: Turno | undefined;
+    setTurnos(prev => prev.map(t => {
+      if (t.id === target.id) {
+        updatedTurno = {
+          ...t,
+          estado: 'Cancelado',
+          motivoCancelacion: rawMotivo,
+          fechaCancelacion: fechaConf,
+          horaCancelacion: horaConf,
+          canceladoPor: data.canceladoPor || 'Responsable de Recepción'
+        };
+        return updatedTurno;
+      }
+      return t;
+    }));
+
+    return {
+      success: true,
+      message: 'Turno cancelado exitosamente',
+      estado: 'Cancelado',
+      motivoCancelacion: rawMotivo,
+      turno: updatedTurno || target,
+      horarioLiberado: {
+        sucursal: target.sucursal,
+        fecha: target.fecha,
+        hora: target.hora,
+        disponible: true
+      }
+    };
+  };
+
+  // ============================================================
   // HU-12: Consultar turnos por estado, rango de fechas y sucursal
   // ============================================================
   const consultarTurnos = (filtros: FiltroTurnosParams = {}): ConsultarTurnosResult => {
@@ -2883,6 +3023,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       consultarDisponibilidad,
       registerTurno,
       confirmarTurno,
+      cancelarTurno,
       consultarTurnos,
       finalizarTurno,
       registrarAusenciaTurno,

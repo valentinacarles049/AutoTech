@@ -281,6 +281,11 @@ export interface LocalTurno {
     mensaje: string;
     destinatario?: string;
   } | null;
+  // HU-12: Cancelar turno
+  motivo_cancelacion?: string | null;
+  fecha_cancelacion?: string | null;
+  hora_cancelacion?: string | null;
+  cancelado_por?: string | null;
   // HU-15: Finalizar turno (registrar presentación del vehículo)
   presupuesto_habilitado?: boolean;
   vehiculo_presentado?: boolean;

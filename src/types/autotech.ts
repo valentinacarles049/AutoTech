@@ -178,6 +178,11 @@ export interface Turno {
     destinatario?: string;
     mensaje: string;
   } | null;
+  // HU-12: Cancelar turno
+  motivoCancelacion?: string | null;
+  fechaCancelacion?: string | null;
+  horaCancelacion?: string | null;
+  canceladoPor?: string | null;
   // HU-15: Finalizar turno (registrar presentación del vehículo)
   presupuestoHabilitado?: boolean;
   vehiculoPresentado?: boolean;
@@ -223,6 +228,34 @@ export interface ConfirmarTurnoResult {
     medio: string;
     destinatario?: string;
     mensaje: string;
+  };
+}
+
+// HU-12: Cancelar turno
+export interface CancelarTurnoPayload {
+  turnoId?: string;
+  nroTurno?: number;
+  patente?: string;
+  vehiculoDominio?: string;
+  clienteNombre?: string;
+  fecha?: string;
+  hora?: string;
+  motivo: string;
+  canceladoPor?: string;
+}
+
+export interface CancelarTurnoResult {
+  success: boolean;
+  message: string;
+  error?: string;
+  estado?: string;
+  motivoCancelacion?: string;
+  turno?: Turno;
+  horarioLiberado?: {
+    sucursal: string;
+    fecha: string;
+    hora: string;
+    disponible: boolean;
   };
 }
 

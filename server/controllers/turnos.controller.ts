@@ -763,6 +763,170 @@ export const confirmarTurno = async (req: Request, res: Response): Promise<void>
 };
 
 /**
+ * HU-12: Cancelar turno
+ * POST /api/turnos/cancelar
+ * POST /api/turnos/:id/cancelar
+ * POST /api/turnos/public-cancel
+ * 
+ * Criterios de Aceptación:
+ * 1. Sólo se cancelan turnos en estado Solicitado o Confirmado
+ * 2. El motivo es obligatorio
+ * 3. El turno pasa a "Cancelado" y el horario vuelve a estar disponible
+ */
+export const cancelarTurno = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const paramId = req.params?.id;
+    const {
+      id,
+      turno_id,
+      turnoId,
+      nro_turno,
+      nroTurno,
+      patente,
+      vehiculo_dominio,
+      vehiculoDominio,
+      cliente_dni,
+      clienteDni,
+      cliente_nombre,
+      clienteNombre,
+      fecha,
+      hora,
+      motivo,
+      motivo_cancelacion,
+      motivoCancelacion,
+      cancelado_por,
+      canceladoPor
+    } = req.body;
+
+    const targetId = String(paramId || id || turno_id || turnoId || '').trim();
+    const targetNro = nro_turno || nroTurno ? Number(nro_turno || nroTurno) : null;
+    const targetPatente = String(patente || vehiculo_dominio || vehiculoDominio || '').trim().toUpperCase();
+    const targetDni = String(cliente_dni || clienteDni || '').trim().replace(/[\s-]/g, '');
+    const targetNombre = String(cliente_nombre || clienteNombre || '').trim().toLowerCase();
+    const targetFecha = String(fecha || '').trim();
+    const targetHora = String(hora || '').trim();
+
+    // 1. Buscar turno en memoria local (o Supabase)
+    const turno = localTurnosSeed.find(t => {
+      if (targetId && t.id === targetId) return true;
+      if (targetNro && t.nro_turno === targetNro) return true;
+      if (targetFecha && targetHora && targetNombre) {
+        const normTFecha = normalizeDate(t.fecha);
+        const normQFecha = normalizeDate(targetFecha);
+        const sameDate = normTFecha.ddmmyyyy === normQFecha.ddmmyyyy || normTFecha.iso === normQFecha.iso;
+        const sameHora = normalizeTime(t.hora) === normalizeTime(targetHora);
+        const sameClient = t.cliente_nombre && t.cliente_nombre.toLowerCase().includes(targetNombre);
+        if (sameDate && sameHora && sameClient) return true;
+      }
+      if (targetFecha && targetHora && targetPatente) {
+        const normTFecha = normalizeDate(t.fecha);
+        const normQFecha = normalizeDate(targetFecha);
+        const sameDate = normTFecha.ddmmyyyy === normQFecha.ddmmyyyy || normTFecha.iso === normQFecha.iso;
+        const sameHora = normalizeTime(t.hora) === normalizeTime(targetHora);
+        const samePlate = t.vehiculo_dominio.toUpperCase() === targetPatente;
+        if (sameDate && sameHora && samePlate) return true;
+      }
+      if (targetPatente && t.vehiculo_dominio.toUpperCase() === targetPatente) {
+        if (!targetId && !targetNro && !targetFecha) return true;
+      }
+      if (targetDni && t.cliente_documento && t.cliente_documento.replace(/[\s-]/g, '') === targetDni) {
+        if (!targetId && !targetNro && !targetPatente && !targetFecha) return true;
+      }
+      if (targetNombre && t.cliente_nombre && t.cliente_nombre.toLowerCase().includes(targetNombre)) {
+        if (!targetId && !targetNro && !targetPatente && !targetDni && !targetFecha) return true;
+      }
+      return false;
+    });
+
+    if (!turno) {
+      res.status(404).json({
+        success: false,
+        error: 'Turno no encontrado'
+      });
+      return;
+    }
+
+    // Criterio 2: El motivo es obligatorio
+    // Si se deja vacío: "El motivo de cancelación es obligatorio"
+    const rawMotivo = String(motivo ?? motivo_cancelacion ?? motivoCancelacion ?? '').trim();
+    if (!rawMotivo) {
+      res.status(400).json({
+        success: false,
+        error: 'El motivo de cancelación es obligatorio',
+        message: 'El motivo de cancelación es obligatorio',
+        estado: turno.estado
+      });
+      return;
+    }
+
+    // Criterio 1: Sólo se cancelan turnos en estado Solicitado o Confirmado
+    const estadoActual = turno.estado;
+    const canCancel = estadoActual === 'Solicitado' || 
+                      estadoActual === 'Confirmado' || 
+                      estadoActual === 'Pendiente de Confirmación (24hs)';
+
+    if (!canCancel) {
+      res.status(400).json({
+        success: false,
+        error: estadoActual === 'Cancelado'
+          ? 'El turno ya se encuentra cancelado'
+          : 'Sólo se cancelan turnos en estado Solicitado o Confirmado',
+        message: estadoActual === 'Cancelado'
+          ? 'El turno ya se encuentra cancelado'
+          : 'Sólo se cancelan turnos en estado Solicitado o Confirmado',
+        estado: estadoActual
+      });
+      return;
+    }
+
+    // Criterio 3: El turno pasa a "Cancelado" y el horario vuelve a estar disponible
+    turno.estado = 'Cancelado';
+    turno.motivo_cancelacion = rawMotivo;
+
+    const now = new Date();
+    const { fecha: regFecha, hora: regHora } = formatDateTimeDisplay(now);
+    turno.fecha_cancelacion = regFecha;
+    turno.hora_cancelacion = regHora;
+    turno.cancelado_por = String(cancelado_por || canceladoPor || (req as any).user?.nombre || 'Responsable de Recepción');
+
+    // Sincronizar en Supabase si está disponible
+    if (isSupabaseConnected && supabase) {
+      try {
+        await supabase
+          .from('turnos')
+          .update({
+            estado_turno_id: 5, // 'Cancelado'
+            motivo_cancelacion: rawMotivo,
+            fecha_cancelacion: regFecha,
+            hora_cancelacion: regHora,
+            cancelado_por: turno.cancelado_por
+          })
+          .eq('nro_turno', turno.nro_turno);
+      } catch (dbErr) {
+        console.warn('[Backend Turnos] Error actualizando cancelación en Supabase, persistido en memoria local:', dbErr);
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Turno cancelado exitosamente',
+      estado: 'Cancelado',
+      motivo_cancelacion: rawMotivo,
+      turno,
+      horario_liberado: {
+        sucursal: turno.sucursal,
+        fecha: turno.fecha,
+        hora: turno.hora,
+        disponible: true
+      }
+    });
+  } catch (err: any) {
+    console.error('[Backend Turnos] Error al cancelar turno:', err);
+    res.status(500).json({ error: 'Error interno al cancelar el turno' });
+  }
+};
+
+/**
  * HU-15: Finalizar turno (registrar presentación del vehículo)
  * POST /api/turnos/finalizar
  * POST /api/turnos/:id/finalizar
