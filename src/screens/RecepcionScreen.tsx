@@ -67,14 +67,14 @@ export const RecepcionScreen: React.FC = () => {
     verificarVencimientoPresupuesto
   } = useWorkshop();
 
-  // Tab activo dentro del módulo de recepción (HU-09, HU-10, HU-11, HU-12, HU-15, HU-19)
-  const [activeTab, setActiveTab] = useState<'nuevo-turno' | 'disponibilidad' | 'confirmar-turno' | 'agenda' | 'finalizar-turno' | 'presupuesto'>('presupuesto');
+  // Tab activo dentro del módulo de recepción
+  const [activeTab, setActiveTab] = useState<'nuevo-turno' | 'disponibilidad' | 'confirmar-turno' | 'agenda' | 'finalizar-turno' | 'presupuesto'>('agenda');
 
-  // Estados para HU-12: Consultar turnos filtrando por estado, rango de fechas y sucursal
+  // Estados para consulta y filtrado de turnos
   const [filtroEstado, setFiltroEstado] = useState<string>('Todos');
-  const [filtroSucursal, setFiltroSucursal] = useState<string>('Centro');
-  const [filtroFechaDesde, setFiltroFechaDesde] = useState<string>('2026-11-15');
-  const [filtroFechaHasta, setFiltroFechaHasta] = useState<string>('2026-11-16');
+  const [filtroSucursal, setFiltroSucursal] = useState<string>('Todas');
+  const [filtroFechaDesde, setFiltroFechaDesde] = useState<string>('');
+  const [filtroFechaHasta, setFiltroFechaHasta] = useState<string>('');
   const [ordenarFechaHora, setOrdenarFechaHora] = useState<boolean>(true);
   const [ordenDireccion, setOrdenDireccion] = useState<'asc' | 'desc'>('asc');
 
@@ -389,23 +389,7 @@ export const RecepcionScreen: React.FC = () => {
     }
   };
 
-  // Cargar datos del escenario BDD Juan Pérez
-  const handleLoadTestData = () => {
-    setDniSearch('30123456');
-    const juan = clients.find(c => c.nroDocumento.replace(/[\s-]/g, '') === '30123456');
-    if (juan) {
-      setFoundClient(juan);
-    }
-    setSelectedPlate('AB123CD');
-    setMotivoConsulta('Mantenimiento general');
-    setSelectedSucursal('Centro');
-    setSelectedFecha('2026-11-15');
-    setSelectedHorario('09:00');
-    setFormError(null);
-    setFormSuccess(null);
-  };
-
-  // HU-09: Envío del formulario para Registrar Turno
+  // Envío del formulario para Registrar Turno
   const handleRegisterTurno = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
@@ -672,8 +656,8 @@ export const RecepcionScreen: React.FC = () => {
         </div>
         <div className="space-y-1">
           <h3 className="text-xs sm:text-sm font-black tracking-tight flex items-center space-x-2">
-            <span>Alerta: El turno requiere confirmación 24hs previas</span>
-            <span className="badge-yellow text-[10px] py-0.2">Regla Operativa</span>
+            <span>Atención: El turno requiere confirmación con 24 hs de anticipación</span>
+            <span className="badge-yellow text-[10px] py-0.5">Regla Operativa</span>
           </h3>
           <p className="text-xs text-amber-800/90 dark:text-amber-300/80 leading-relaxed">
             La orden no ingresará a línea de taller hasta la confirmación telefónica o digital del cliente y la reserva de los repuestos en pañol.
@@ -684,6 +668,18 @@ export const RecepcionScreen: React.FC = () => {
       {/* PESTAÑAS DE NAVEGACIÓN DENTRO DE RECEPCIÓN */}
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 dark:border-[#3A3A48] pb-3">
         <button
+          onClick={() => setActiveTab('agenda')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center space-x-2 transition-all ${
+            activeTab === 'agenda'
+              ? 'bg-red-600 text-white shadow-md shadow-red-600/30'
+              : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+          }`}
+        >
+          <ListFilter className="w-4 h-4" />
+          <span>Agenda de Turnos ({turnos.length})</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('nuevo-turno')}
           className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center space-x-2 transition-all ${
             activeTab === 'nuevo-turno'
@@ -692,7 +688,7 @@ export const RecepcionScreen: React.FC = () => {
           }`}
         >
           <Plus className="w-4 h-4" />
-          <span>HU-09: Registrar Solicitud de Turno</span>
+          <span>Registrar Turno</span>
         </button>
 
         <button
@@ -704,7 +700,7 @@ export const RecepcionScreen: React.FC = () => {
           }`}
         >
           <Clock className="w-4 h-4" />
-          <span>HU-10: Consultar Disponibilidad</span>
+          <span>Disponibilidad Horaria</span>
         </button>
 
         <button
@@ -716,19 +712,7 @@ export const RecepcionScreen: React.FC = () => {
           }`}
         >
           <CheckCheck className="w-4 h-4" />
-          <span>HU-11: Confirmar Turno</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('agenda')}
-          className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center space-x-2 transition-all ${
-            activeTab === 'agenda'
-              ? 'bg-red-600 text-white shadow-md shadow-red-600/30'
-              : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-          }`}
-        >
-          <ListFilter className="w-4 h-4" />
-          <span>HU-12: Consultar Turnos ({turnos.length})</span>
+          <span>Confirmar Turno</span>
         </button>
 
         <button
@@ -740,7 +724,7 @@ export const RecepcionScreen: React.FC = () => {
           }`}
         >
           <Car className="w-4 h-4" />
-          <span>HU-15: Finalizar Turno (Presentación)</span>
+          <span>Recepción de Vehículo</span>
         </button>
 
         <button
@@ -752,7 +736,7 @@ export const RecepcionScreen: React.FC = () => {
           }`}
         >
           <FileCheck className="w-4 h-4" />
-          <span>HU-19: Registrar Presupuesto</span>
+          <span>Presupuestos</span>
         </button>
       </div>
 
@@ -816,13 +800,6 @@ export const RecepcionScreen: React.FC = () => {
                   <span className="w-2.5 h-2.5 rounded-full bg-red-600 inline-block" />
                   <span>Paso 1: Búsqueda del Cliente por DNI</span>
                 </h2>
-                <button
-                  type="button"
-                  onClick={handleLoadTestData}
-                  className="px-2.5 py-1 text-[11px] rounded-lg bg-red-600/10 hover:bg-red-600/20 text-red-600 border border-red-600/20 font-bold transition-colors text-left"
-                >
-                  ⚡ Cargar datos de prueba (Juan Pérez - DNI 30123456)
-                </button>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
@@ -1035,7 +1012,7 @@ export const RecepcionScreen: React.FC = () => {
                     </div>
                   )}
                   <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">
-                    Criterio 1: Se excluyen los horarios ya reservados
+                    Se muestran únicamente los horarios libres de la sucursal
                   </p>
                 </div>
               </div>
@@ -1108,10 +1085,10 @@ export const RecepcionScreen: React.FC = () => {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200 dark:border-[#3A3A48]">
               <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
                 <Clock className="w-4 h-4 text-red-600" />
-                <span>HU-10: Consultar Disponibilidad Horaria por Sucursal y Fecha</span>
+                <span>Consultar Disponibilidad Horaria por Sucursal y Fecha</span>
               </h2>
               <span className="text-xs text-slate-500">
-                Herramienta para recepcionistas en atención al cliente
+                Consulta de agenda en tiempo real
               </span>
             </div>
 
@@ -1134,7 +1111,7 @@ export const RecepcionScreen: React.FC = () => {
                   ))}
                 </select>
                 <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">
-                  Criterio 1: Solo se consideran horarios dentro del horario de atención de la sucursal elegida
+                  Horarios dentro de la franja de atención de la sucursal seleccionada
                 </p>
               </div>
 
@@ -1253,9 +1230,9 @@ export const RecepcionScreen: React.FC = () => {
                   <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-[#3A3A48]">
                     <h3 className="text-xs font-bold text-slate-600 dark:text-slate-400 flex items-center space-x-2">
                       <span className="w-2 h-2 rounded-full bg-slate-400 inline-block" />
-                      <span>Horarios Excluidos por Turnos Solicitados o Confirmados ({dispResult.horariosOcupados.length})</span>
+                      <span>Horarios Reservados ({dispResult.horariosOcupados.length})</span>
                     </h3>
-                    <span className="text-[10px] text-slate-400">Criterio 2: Excluidos de los libres</span>
+                    <span className="text-[10px] text-slate-400">No disponibles</span>
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-2.5">
@@ -1283,7 +1260,7 @@ export const RecepcionScreen: React.FC = () => {
       )}
 
       {/* ============================================================ */}
-      {/* VISTA HU-11: CONFIRMAR TURNO (CLIENTE / MENSAJERÍA) */}
+      {/* VISTA: CONFIRMAR TURNO */}
       {/* ============================================================ */}
       {activeTab === 'confirmar-turno' && (
         <div className="card-surface rounded-2xl p-6 shadow-sm space-y-6 animate-in fade-in duration-200">
@@ -1291,15 +1268,15 @@ export const RecepcionScreen: React.FC = () => {
             <div>
               <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center space-x-2">
                 <CheckCheck className="w-5 h-5 text-emerald-600" />
-                <span>HU-11: Confirmar Turno de Cliente</span>
+                <span>Confirmar Turno</span>
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Como cliente, quiero confirmar mi turno por mail o mensaje, para asegurar mi lugar en la sucursal.
+                Registro de confirmación de turnos por correo electrónico o mensajería con al menos 24 horas de anticipación.
               </p>
             </div>
             <div className="flex items-center space-x-2">
-              <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-400 border border-amber-300 dark:border-amber-800">
-                Regla: Faltar ≥ 24 hs
+              <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-emerald-400 border border-amber-300 dark:border-amber-800">
+                Anticipación mínima: 24 hs
               </span>
             </div>
           </div>
@@ -1337,7 +1314,7 @@ export const RecepcionScreen: React.FC = () => {
 
             {turnos.length === 0 ? (
               <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#1A1A22] border border-slate-200 dark:border-[#3A3A48] text-xs text-slate-500">
-                No hay turnos registrados aún. Registre uno en "HU-09: Registrar Solicitud de Turno".
+                No hay turnos registrados aún.
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -1425,36 +1402,6 @@ export const RecepcionScreen: React.FC = () => {
                   Se registrará el medio seleccionado y se emitirá la notificación al cliente.
                 </p>
               </div>
-
-              {/* SIMULACIÓN FECHA / HORA ACTUAL (CRITERIO 24 HS) */}
-              <div className="space-y-3">
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-                  3. Fecha y Hora Actual (Simulación BDD)
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setConfirmFechaHoraActual('13/11/2026 10:00')}
-                    className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-100 hover:bg-emerald-200 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300 transition-colors"
-                  >
-                    ✓ 13/11/2026 10:00 (Dentro plazo)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setConfirmFechaHoraActual('14/11/2026 10:00')}
-                    className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-red-100 hover:bg-red-200 text-red-800 dark:bg-red-950/50 dark:text-red-300 transition-colors"
-                  >
-                    ✗ 14/11/2026 10:00 (Fuera plazo)
-                  </button>
-                </div>
-                <input
-                  type="text"
-                  value={confirmFechaHoraActual}
-                  onChange={(e) => setConfirmFechaHoraActual(e.target.value)}
-                  placeholder="DD/MM/YYYY HH:mm"
-                  className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-[#3A3A48] bg-white dark:bg-[#1A1A22] text-slate-900 dark:text-white"
-                />
-              </div>
             </div>
           )}
 
@@ -1484,7 +1431,7 @@ export const RecepcionScreen: React.FC = () => {
             <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#1A1A22] border border-emerald-200 dark:border-emerald-900/60 space-y-2 animate-in fade-in">
               <div className="flex items-center space-x-2 text-xs font-bold text-emerald-600 dark:text-emerald-400">
                 <CheckCircle2 className="w-4 h-4" />
-                <span>Notificación Enviada al Cliente (Criterio 4)</span>
+                <span>Notificación Enviada al Cliente</span>
               </div>
               <div className="text-xs text-slate-700 dark:text-slate-300 font-mono bg-white dark:bg-[#121218] p-3 rounded-lg border border-slate-200 dark:border-[#2A2A38]">
                 <div><strong>Destinatario:</strong> {confirmResult.notificacion.destinatario} ({confirmResult.notificacion.medio})</div>
@@ -1498,53 +1445,24 @@ export const RecepcionScreen: React.FC = () => {
       )}
 
       {/* ============================================================ */}
-      {/* VISTA 2: HU-12 CONSULTAR TURNOS POR ESTADO, FECHA Y SUCURSAL */}
+      {/* VISTA: CONSULTAR TURNOS POR ESTADO, FECHA Y SUCURSAL */}
       {/* ============================================================ */}
       {activeTab === 'agenda' && (
         <div className="space-y-6 animate-in fade-in duration-200">
-          {/* Panel de Filtros Combinables y Ordenamiento (HU-12 CA 1 y CA 3) */}
+          {/* Panel de Filtros Combinables y Ordenamiento */}
           <div className="card-surface rounded-2xl p-5 shadow-sm space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-[#3A3A48]">
               <div>
                 <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
                   <ListFilter className="w-4 h-4 text-red-600" />
-                  <span>HU-12: Consultar Turnos por Estado, Fecha y Sucursal</span>
+                  <span>Agenda y Consulta de Turnos</span>
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Filtros combinables y ordenamiento cronológico por fecha y hora para organizar la atención del día.
+                  Filtre por estado, rango de fechas y sucursal para organizar la atención del día.
                 </p>
               </div>
 
-              {/* Botones rápidos para probar los escenarios BDD */}
               <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFiltroEstado('Confirmado');
-                    setFiltroFechaDesde('2026-11-15');
-                    setFiltroFechaHasta('2026-11-16');
-                    setFiltroSucursal('Centro');
-                    setOrdenarFechaHora(true);
-                    setOrdenDireccion('asc');
-                  }}
-                  className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 transition-colors"
-                >
-                  ⚡ Escenario 1: Confirmados (15/11 al 16/11)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFiltroEstado('Cancelado');
-                    setFiltroFechaDesde('2026-11-15');
-                    setFiltroFechaHasta('2026-11-16');
-                    setFiltroSucursal('Centro');
-                    setOrdenarFechaHora(true);
-                    setOrdenDireccion('asc');
-                  }}
-                  className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 transition-colors"
-                >
-                  ⚡ Escenario 2: Cancelados (Sin resultados)
-                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -1555,10 +1473,10 @@ export const RecepcionScreen: React.FC = () => {
                     setOrdenarFechaHora(true);
                     setOrdenDireccion('asc');
                   }}
-                  className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center space-x-1 transition-colors"
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center space-x-1.5 transition-colors"
                 >
-                  <RotateCcw className="w-3 h-3" />
-                  <span>Ver todos</span>
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Limpiar filtros</span>
                 </button>
               </div>
             </div>
@@ -1776,7 +1694,7 @@ export const RecepcionScreen: React.FC = () => {
                                   setActiveTab('confirmar-turno');
                                 }}
                                 className="px-2.5 py-1 bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-600 dark:text-emerald-400 rounded-lg text-[10px] font-bold border border-emerald-600/20 transition-colors flex items-center space-x-1"
-                                title="Confirmar turno (HU-11)"
+                                title="Confirmar turno"
                               >
                                 <CheckCheck className="w-3 h-3" />
                                 <span>Confirmar</span>
@@ -1790,7 +1708,7 @@ export const RecepcionScreen: React.FC = () => {
                                   setActiveTab('finalizar-turno');
                                 }}
                                 className="px-2.5 py-1 bg-blue-600/10 hover:bg-blue-600/20 text-blue-600 dark:text-blue-400 rounded-lg text-[10px] font-bold border border-blue-600/20 transition-colors flex items-center space-x-1"
-                                title="Registrar presentación del vehículo (HU-15)"
+                                title="Registrar presentación del vehículo"
                               >
                                 <Car className="w-3 h-3" />
                                 <span>Finalizar</span>
@@ -1818,7 +1736,7 @@ export const RecepcionScreen: React.FC = () => {
       )}
 
       {/* ============================================================ */}
-      {/* VISTA HU-15: FINALIZAR TURNO (REGISTRAR PRESENTACIÓN DEL VEHÍCULO) */}
+      {/* VISTA: FINALIZAR TURNO (REGISTRAR PRESENTACIÓN DEL VEHÍCULO) */}
       {/* ============================================================ */}
       {activeTab === 'finalizar-turno' && (
         <div className="card-surface rounded-2xl p-6 shadow-sm space-y-6 animate-in fade-in duration-200">
@@ -1826,15 +1744,15 @@ export const RecepcionScreen: React.FC = () => {
             <div>
               <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center space-x-2">
                 <Car className="w-5 h-5 text-red-600" />
-                <span>HU-15: Finalizar Turno (Registrar Presentación del Vehículo)</span>
+                <span>Recepción de Vehículo (Finalizar Turno)</span>
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Como responsable de recepción, quiero registrar que el cliente presentó el vehículo, para dar por finalizado el turno y generar el presupuesto.
+                Registre la presentación del vehículo en la sucursal para finalizar el turno confirmado y habilitar el presupuesto.
               </p>
             </div>
             <div className="flex items-center space-x-2">
               <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800">
-                Regla: Turnos Confirmados del Día
+                Turnos Confirmados del Día
               </span>
             </div>
           </div>
@@ -1882,38 +1800,8 @@ export const RecepcionScreen: React.FC = () => {
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-                1. Seleccione el Turno / Vehículo <span className="text-red-600">*</span>
+                Seleccione el Turno / Vehículo <span className="text-red-600">*</span>
               </label>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const tConf = turnos.find(t => t.vehiculoDominio === 'AB123CD' && t.fecha === '15/11/2026') || turnos[0];
-                    if (tConf) {
-                      setFinTurnoId(tConf.id);
-                      setFinFechaHoy('15/11/2026');
-                      setFinHoraActual('09:00');
-                    }
-                  }}
-                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30"
-                >
-                  ⚡ Escenario 1 y 3: Juan Pérez (AB123CD - 15/11/2026 - Confirmado)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const tSol = turnos.find(t => t.estado === 'Solicitado') || turnos[turnos.length - 1];
-                    if (tSol) {
-                      setFinTurnoId(tSol.id);
-                      setFinFechaHoy('15/11/2026');
-                      setFinHoraActual('09:00');
-                    }
-                  }}
-                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30"
-                >
-                  ⚡ Escenario 2: Turno en estado "Solicitado"
-                </button>
-              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -1961,11 +1849,11 @@ export const RecepcionScreen: React.FC = () => {
             </div>
           </div>
 
-          {/* FECHA Y HORA DE REFERENCIA ("HOY") */}
+          {/* FECHA Y HORA DE RECEPCIÓN */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-slate-200 dark:border-[#3A3A48]">
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-                2. Fecha Actual ("Hoy" en simulación BDD)
+                Fecha de Recepción
               </label>
               <input
                 type="text"
@@ -1977,7 +1865,7 @@ export const RecepcionScreen: React.FC = () => {
             </div>
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-                3. Hora Actual (para verificación de ausencia)
+                Hora de Recepción
               </label>
               <input
                 type="text"
@@ -2026,20 +1914,20 @@ export const RecepcionScreen: React.FC = () => {
       )}
 
       {/* ============================================================ */}
-      {/* VISTA HU-19: REGISTRAR PRESUPUESTO DE REPARACIÓN */}
+      {/* VISTA: REGISTRAR PRESUPUESTO DE REPARACIÓN */}
       {/* ============================================================ */}
       {activeTab === 'presupuesto' && (
         <div className="space-y-6 animate-in fade-in duration-200">
-          {/* CABECERA Y ESCENARIOS BDD HU-19 */}
+          {/* CABECERA DEL PRESUPUESTO */}
           <div className="card-surface rounded-2xl p-5 shadow-sm space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-[#3A3A48]">
               <div>
                 <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center space-x-2">
                   <FileCheck className="w-5 h-5 text-red-600" />
-                  <span>HU-19: Registrar Presupuesto de Reparación (DetallePresupuesto)</span>
+                  <span>Registrar Presupuesto de Reparación</span>
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  Como responsable de recepción, quiero registrar el presupuesto de un turno finalizado, para informar al cliente el costo de la reparación.
+                  Detalle los repuestos y mano de obra para emitir el presupuesto correspondiente al turno finalizado.
                 </p>
               </div>
 
@@ -2059,50 +1947,6 @@ export const RecepcionScreen: React.FC = () => {
                   </span>
                 )}
               </div>
-            </div>
-
-            {/* Botones rápidos para probar los Escenarios BDD de HU-19 */}
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <button
-                type="button"
-                onClick={async () => {
-                  setPresError(null);
-                  setPresSuccess(null);
-                  const tJuan = turnos.find(t => t.vehiculoDominio === 'AB123CD' && t.fecha === '15/11/2026') || turnos[0];
-                  if (tJuan) {
-                    setPresTurnoId(tJuan.id);
-                    if (tJuan.estado !== 'Finalizado') {
-                      await finalizarTurno({
-                        turnoId: tJuan.id,
-                        vehiculoDominio: tJuan.vehiculoDominio,
-                        fechaActual: '15/11/2026',
-                        horaActual: '09:00',
-                        vehiculoPresentado: true
-                      });
-                    }
-                  }
-                  setPresDescuentoPct(10);
-                  setPresValidezDias(15);
-                  setPresFechaEmision('15/11/2026');
-                  setPresItems([
-                    { id: 'item-1', descripcion: 'Aceite 5W30 (litro)', cantidad: 4, precioUnitario: 9000, subtotal: 36000 },
-                    { id: 'item-2', descripcion: 'Filtro de aceite', cantidad: 1, precioUnitario: 8000, subtotal: 8000 },
-                    { id: 'item-3', descripcion: 'Mano de obra', cantidad: 1, precioUnitario: 15000, subtotal: 15000 }
-                  ]);
-                }}
-                className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 transition-colors"
-              >
-                ⚡ Cargar Escenario 1: Juan Pérez (AB123CD • Finalizado • 10% Fidelización • Validez 15 días)
-              </button>
-
-              <button
-                type="button"
-                onClick={handleVerificarVencimiento}
-                disabled={!currentPresupuesto}
-                className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 disabled:opacity-40 transition-colors"
-              >
-                ⚡ Escenario 2: Simular llegada del 01/12/2026 sin respuesta (Pasar a "Vencido")
-              </button>
             </div>
 
             {/* Mensajes de confirmación o error */}
@@ -2187,16 +2031,16 @@ export const RecepcionScreen: React.FC = () => {
             </div>
           </div>
 
-          {/* TABLA DE ÍTEMS DE DETALLE (DetallePresupuesto del MODP) */}
+          {/* TABLA DE ÍTEMS DE DETALLE */}
           <div className="card-surface rounded-2xl p-5 shadow-sm space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-[#3A3A48]">
               <div>
                 <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-red-600 inline-block" />
-                  <span>Ítems de Detalle del Presupuesto (DetallePresupuesto: Repuestos y Mano de Obra)</span>
+                  <span>Detalle del Presupuesto (Repuestos y Mano de Obra)</span>
                 </h3>
                 <p className="text-[11px] text-slate-500 mt-0.5">
-                  Cada ítem registra descripción, cantidad, precio unitario y subtotal (cantidad × precio unitario).
+                  Cada ítem registra descripción, cantidad, precio unitario y subtotal.
                 </p>
               </div>
 
@@ -2351,24 +2195,7 @@ export const RecepcionScreen: React.FC = () => {
             </div>
 
             {/* Botón de Acción Principal: "Registrar presupuesto" */}
-            <div className="pt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 dark:border-[#3A3A48]">
-              <div className="flex items-center space-x-2">
-                <span className="text-xs font-bold text-slate-500">Simular fecha actual para control de vencimiento:</span>
-                <input
-                  type="text"
-                  value={presFechaVencimientoSim}
-                  onChange={(e) => setPresFechaVencimientoSim(e.target.value)}
-                  className="app-input w-28 px-2.5 py-1.5 text-xs font-mono font-bold"
-                />
-                <button
-                  type="button"
-                  onClick={handleVerificarVencimiento}
-                  className="px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-700 dark:text-amber-300 border border-amber-500/30 text-xs font-bold"
-                >
-                  Verificar Vencimiento
-                </button>
-              </div>
-
+            <div className="pt-4 flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 dark:border-[#3A3A48]">
               <button
                 type="button"
                 disabled={isSavingPresupuesto || isPresupuestoVencido}

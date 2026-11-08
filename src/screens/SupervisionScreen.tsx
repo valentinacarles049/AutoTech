@@ -6,10 +6,10 @@ export const SupervisionScreen: React.FC = () => {
   const { workOrders, approveOrder, rejectOrder, turnos, sucursales, consultarTurnos } = useWorkshop();
   const [feedback, setFeedback] = useState<string | null>(null);
 
-  const [filtroEstado, setFiltroEstado] = useState<string>('Confirmado');
-  const [filtroSucursal, setFiltroSucursal] = useState<string>('Centro');
-  const [filtroFechaDesde, setFiltroFechaDesde] = useState<string>('2026-11-15');
-  const [filtroFechaHasta, setFiltroFechaHasta] = useState<string>('2026-11-16');
+  const [filtroEstado, setFiltroEstado] = useState<string>('Todos');
+  const [filtroSucursal, setFiltroSucursal] = useState<string>('Todas');
+  const [filtroFechaDesde, setFiltroFechaDesde] = useState<string>('');
+  const [filtroFechaHasta, setFiltroFechaHasta] = useState<string>('');
   const [ordenDireccion, setOrdenDireccion] = useState<'asc' | 'desc'>('asc');
 
   const resultadoTurnosTaller = useMemo(() => {
@@ -172,45 +172,20 @@ export const SupervisionScreen: React.FC = () => {
       </div>
 
       {/* ============================================================ */}
-      {/* HU-12: CONSULTAR TURNOS POR ESTADO, FECHA Y SUCURSAL (RESPONSABLE DE TALLER) */}
+      {/* AGENDA DE TURNOS DEL TALLER POR ESTADO, FECHA Y SUCURSAL */}
       {/* ============================================================ */}
       <div className="card-surface rounded-2xl p-5 shadow-sm space-y-4 border border-slate-200 dark:border-[#3A3A48]">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-[#3A3A48]">
           <div>
             <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
               <ListFilter className="w-4 h-4 text-red-600" />
-              <span>HU-12: Agenda de Turnos del Taller por Estado, Fecha y Sucursal</span>
+              <span>Agenda de Turnos del Taller</span>
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               Organice la atención diaria filtrando por estado, rango de fechas y sucursal, ordenado por fecha y hora.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setFiltroEstado('Confirmado');
-                setFiltroFechaDesde('2026-11-15');
-                setFiltroFechaHasta('2026-11-16');
-                setFiltroSucursal('Centro');
-                setOrdenDireccion('asc');
-              }}
-              className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 transition-colors"
-            >
-              ⚡ Confirmados (15/11 al 16/11)
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setFiltroEstado('Cancelado');
-                setFiltroFechaDesde('2026-11-15');
-                setFiltroFechaHasta('2026-11-16');
-                setFiltroSucursal('Centro');
-              }}
-              className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 transition-colors"
-            >
-              ⚡ Cancelados (Sin resultados)
-            </button>
             <button
               type="button"
               onClick={() => {
@@ -223,7 +198,7 @@ export const SupervisionScreen: React.FC = () => {
               className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center space-x-1 transition-colors"
             >
               <RotateCcw className="w-3 h-3" />
-              <span>Todos</span>
+              <span>Restablecer filtros</span>
             </button>
           </div>
         </div>

@@ -112,7 +112,7 @@ export const Sidebar: React.FC = () => {
       <div className="p-3 rounded-xl bg-slate-50 dark:bg-[#282832] border border-slate-200 dark:border-[#3A3A48] space-y-2">
         <div className="flex items-center justify-between text-[11px]">
           <span className="text-slate-500 dark:text-slate-400 font-medium">Estado Red</span>
-          <span className="badge-green text-[10px] px-2 py-0.2">● Operativo</span>
+          <span className="badge-green text-[10px] px-2 py-0.5">● Operativo</span>
         </div>
         <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
           <div className="bg-emerald-500 h-full w-[94%]" />

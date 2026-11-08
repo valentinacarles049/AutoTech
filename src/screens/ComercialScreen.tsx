@@ -560,7 +560,7 @@ export const ComercialScreen: React.FC = () => {
                   data-testid="btn-modificar-cliente"
                   onClick={() => handleOpenEditModal(selectedClient)}
                   className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all shadow-sm shadow-red-600/20 cursor-pointer active:scale-95"
-                  title="Modificar datos del cliente (HU-06)"
+                  title="Modificar datos del cliente"
                 >
                   <Edit2 className="w-3.5 h-3.5" />
                   <span>Modificar Cliente</span>
@@ -735,7 +735,7 @@ export const ComercialScreen: React.FC = () => {
                         data-testid={`btn-modificar-vehiculo-${veh.plate}`}
                         onClick={() => handleOpenEditVehicleModal(veh)}
                         className="px-2 py-0.5 rounded-lg text-[11px] font-bold text-red-600 hover:text-white hover:bg-red-600 border border-red-600/30 transition-all flex items-center space-x-1 cursor-pointer"
-                        title="Modificar datos del vehículo (HU-08)"
+                        title="Modificar datos del vehículo"
                       >
                         <Edit2 className="w-3 h-3" />
                         <span>Modificar</span>
@@ -1065,7 +1065,7 @@ export const ComercialScreen: React.FC = () => {
             <div className="p-5 border-b border-slate-200 dark:border-[#3A3A48] flex items-center justify-between">
               <div>
                 <span className="text-[10px] uppercase font-bold text-red-600 dark:text-red-400 tracking-wider block">
-                  HU-06 • Modificar Cliente
+                  Gestión de Clientes
                 </span>
                 <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center space-x-2">
                   <span>Modificar Datos del Cliente</span>
@@ -1267,7 +1267,7 @@ export const ComercialScreen: React.FC = () => {
             <div className="p-5 border-b border-slate-200 dark:border-[#3A3A48] flex items-center justify-between">
               <div>
                 <span className="text-[10px] uppercase font-bold text-red-600 dark:text-red-400 tracking-wider block">
-                  HU-08 • Modificar Vehículo
+                  Gestión de Flota
                 </span>
                 <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center space-x-2">
                   <span>Modificar Datos del Vehículo</span>

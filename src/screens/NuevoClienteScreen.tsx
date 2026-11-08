@@ -557,7 +557,7 @@ export const NuevoClienteScreen: React.FC = () => {
           <div className="p-4 rounded-2xl bg-slate-50 dark:bg-[#1E1E24] border border-slate-200 dark:border-[#3A3A48] space-y-3 text-xs">
             <h4 className="font-bold text-slate-900 dark:text-white flex items-center space-x-1.5">
               <Award className="w-4 h-4 text-red-600" />
-              <span>Reglas de Validación ERP (HU-04)</span>
+              <span>Requisitos de Registro</span>
             </h4>
             <ul className="space-y-2 text-slate-600 dark:text-slate-400 text-[11px] leading-relaxed">
               <li className="flex items-start space-x-2">
