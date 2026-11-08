@@ -825,26 +825,18 @@ export const finalizarTurno = async (req: Request, res: Response): Promise<void>
 
     const normHoy = normalizeDate(rawHoy);
 
-    // Buscar turno objetivo
-    // Si se busca por patente y hay varios turnos para esa patente, priorizar el de la fecha actual ("hoy")
-    let turno = localTurnosSeed.find(t => {
-      if (targetId && t.id === targetId) return true;
-      if (targetNro && t.nro_turno === targetNro) return true;
-      if (targetPatente && t.vehiculo_dominio.toUpperCase() === targetPatente && !targetId && !targetNro) {
-        const tNorm = normalizeDate(t.fecha);
-        return tNorm.iso === normHoy.iso;
-      }
-      return false;
-    });
-
-    if (!turno) {
-      turno = localTurnosSeed.find(t => {
-        if (targetId && t.id === targetId) return true;
-        if (targetNro && t.nro_turno === targetNro) return true;
-        if (targetPatente && t.vehiculo_dominio.toUpperCase() === targetPatente && !targetId && !targetNro) return true;
-        if (targetDni && t.cliente_documento && t.cliente_documento.replace(/[\s-]/g, '') === targetDni && !targetId && !targetNro && !targetPatente) return true;
-        return false;
-      });
+    // Buscar turno objetivo respetando estrictamente targetId o targetNro si fueron provistos
+    let turno: LocalTurno | undefined;
+    if (targetId) {
+      turno = localTurnosSeed.find(t => t.id === targetId);
+    } else if (targetNro) {
+      turno = localTurnosSeed.find(t => t.nro_turno === targetNro);
+    } else if (targetPatente) {
+      turno =
+        localTurnosSeed.find(t => t.vehiculo_dominio.toUpperCase() === targetPatente && normalizeDate(t.fecha).iso === normHoy.iso) ||
+        localTurnosSeed.find(t => t.vehiculo_dominio.toUpperCase() === targetPatente);
+    } else if (targetDni) {
+      turno = localTurnosSeed.find(t => t.cliente_documento && t.cliente_documento.replace(/[\s-]/g, '') === targetDni);
     }
 
     if (!turno) {
@@ -863,27 +855,49 @@ export const finalizarTurno = async (req: Request, res: Response): Promise<void>
       ausente === true;
 
     if (isAusenteRequest) {
+      if (turno.estado.trim().toLowerCase() !== 'confirmado') {
+        res.status(400).json({
+          success: false,
+          error: 'Sólo se pueden marcar como ausentes turnos en estado Confirmado',
+          message: 'Sólo se pueden marcar como ausentes turnos en estado Confirmado',
+          estado: turno.estado,
+          presupuesto_habilitado: Boolean(turno.presupuesto_habilitado),
+          presupuestoHabilitado: Boolean(turno.presupuesto_habilitado)
+        });
+        return;
+      }
+
       const refHora = normalizeTime(rawHoraRef || turno.hora);
       const refDT = parseFullDateTime(normHoy.ddmmyyyy, refHora);
       const turnoDT = parseFullDateTime(turno.fecha, turno.hora);
 
-      if (turno.estado === 'Confirmado' && (!refDT || !turnoDT || refDT.getTime() >= turnoDT.getTime())) {
-        turno.estado = 'Ausente';
-        turno.presupuesto_habilitado = false;
-        turno.vehiculo_presentado = false;
-
-        res.status(200).json({
-          success: true,
-          message: 'El turno pasó al estado Ausente',
-          estado: 'Ausente',
-          presupuesto_habilitado: false,
-          presupuestoHabilitado: false,
-          vehiculo_presentado: false,
-          vehiculoPresentado: false,
-          turno
+      if (refDT && turnoDT && refDT.getTime() < turnoDT.getTime()) {
+        res.status(400).json({
+          success: false,
+          error: `Aún no llegó la fecha y hora del turno (${turno.fecha} a las ${turno.hora}) para registrar la ausencia`,
+          message: `Aún no llegó la fecha y hora del turno (${turno.fecha} a las ${turno.hora}) para registrar la ausencia`,
+          estado: turno.estado,
+          presupuesto_habilitado: Boolean(turno.presupuesto_habilitado),
+          presupuestoHabilitado: Boolean(turno.presupuesto_habilitado)
         });
         return;
       }
+
+      turno.estado = 'Ausente';
+      turno.presupuesto_habilitado = false;
+      turno.vehiculo_presentado = false;
+
+      res.status(200).json({
+        success: true,
+        message: 'El turno pasó al estado Ausente',
+        estado: 'Ausente',
+        presupuesto_habilitado: false,
+        presupuestoHabilitado: false,
+        vehiculo_presentado: false,
+        vehiculoPresentado: false,
+        turno
+      });
+      return;
     }
 
     // Criterio 1: Sólo se finalizan turnos Confirmados del día
@@ -1002,16 +1016,13 @@ export const registrarAusenciaTurno = async (req: Request, res: Response): Promi
 
     // Buscar el turno específico o todos los turnos confirmados cuya fecha/hora haya llegado sin presentación
     const candidatos = localTurnosSeed.filter(t => {
-      if (targetId && t.id === targetId) return true;
-      if (targetNro && t.nro_turno === targetNro) return true;
-      if (targetPatente && t.vehiculo_dominio.toUpperCase() === targetPatente && !targetId && !targetNro) {
+      if (targetId) return t.id === targetId;
+      if (targetNro) return t.nro_turno === targetNro;
+      if (targetPatente) {
         const tNorm = normalizeDate(t.fecha);
-        return !normRefFecha.iso || tNorm.iso === normRefFecha.iso;
+        return t.vehiculo_dominio.toUpperCase() === targetPatente && (!normRefFecha.iso || tNorm.iso === normRefFecha.iso);
       }
-      if (!targetId && !targetNro && !targetPatente) {
-        return t.estado === 'Confirmado';
-      }
-      return false;
+      return t.estado === 'Confirmado';
     });
 
     if (candidatos.length === 0) {
@@ -1020,6 +1031,39 @@ export const registrarAusenciaTurno = async (req: Request, res: Response): Promi
         error: 'Turno no encontrado'
       });
       return;
+    }
+
+    const isTargetedSingle = Boolean(targetId || targetNro || targetPatente);
+
+    if (isTargetedSingle && candidatos.length === 1) {
+      const t = candidatos[0];
+      if (t.estado.trim().toLowerCase() !== 'confirmado') {
+        res.status(400).json({
+          success: false,
+          error: 'Sólo se pueden marcar como ausentes turnos en estado Confirmado',
+          message: 'Sólo se pueden marcar como ausentes turnos en estado Confirmado',
+          estado: t.estado,
+          presupuesto_habilitado: Boolean(t.presupuesto_habilitado),
+          presupuestoHabilitado: Boolean(t.presupuesto_habilitado),
+          turno: t
+        });
+        return;
+      }
+
+      const tDT = parseFullDateTime(t.fecha, t.hora);
+      const llegoFechaHora = !refDT || !tDT || refDT.getTime() >= tDT.getTime();
+      if (!llegoFechaHora) {
+        res.status(400).json({
+          success: false,
+          error: `Aún no llegó la fecha y hora del turno (${t.fecha} a las ${t.hora}) para registrar la ausencia`,
+          message: `Aún no llegó la fecha y hora del turno (${t.fecha} a las ${t.hora}) para registrar la ausencia`,
+          estado: t.estado,
+          presupuesto_habilitado: Boolean(t.presupuesto_habilitado),
+          presupuestoHabilitado: Boolean(t.presupuesto_habilitado),
+          turno: t
+        });
+        return;
+      }
     }
 
     const actualizados: LocalTurno[] = [];

@@ -427,6 +427,7 @@ async function runTests() {
   const mockTurnoNoFin = createMockReqRes({
     body: {
       turno_id: 'turno-juan-solicitado',
+      patente: 'AB123CD',
       validez_dias: 15,
       items: [
         { descripcion: 'Diagnóstico', cantidad: 1, precio_unitario: 10000 }
@@ -437,7 +438,7 @@ async function runTests() {
   await registrarPresupuesto(mockTurnoNoFin.req, mockTurnoNoFin.res);
   assert(
     mockTurnoNoFin.getStatus() === 400 && mockTurnoNoFin.getData()?.success === false,
-    'No permite registrar el presupuesto si el turno no está en estado "Finalizado"'
+    'No permite registrar el presupuesto si el turno elegido no está en estado "Finalizado" (ni lo guarda en otro turno de la misma patente)'
   );
 
   // Restaurar estado original de localTurnosSeed y localClientsSeed para no afectar otras suites

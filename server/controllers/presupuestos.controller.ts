@@ -221,22 +221,21 @@ export const registrarPresupuesto = async (req: Request, res: Response): Promise
     const targetPatente = String(vehiculo_dominio || vehiculoDominio || patente || '').trim().toUpperCase();
     const targetCliente = String(cliente_nombre || clienteNombre || '').trim();
 
-    // 1. Buscar el turno correspondiente (priorizando turnos en estado "Finalizado")
-    let turno = localTurnosSeed.find(t => {
-      if (targetTurnoId && t.id === targetTurnoId) return true;
-      if (targetNroTurno && t.nro_turno === targetNroTurno) return true;
-      if (targetPatente && t.vehiculo_dominio.toUpperCase() === targetPatente && t.estado === 'Finalizado') return true;
-      return false;
-    });
+    // 1. Buscar el turno correspondiente respetando estrictamente el turno seleccionado si se indicó turnoId o nroTurno
+    let turno: typeof localTurnosSeed[number] | undefined;
 
-    if (!turno) {
-      turno = localTurnosSeed.find(t => {
-        if (targetTurnoId && t.id === targetTurnoId) return true;
-        if (targetNroTurno && t.nro_turno === targetNroTurno) return true;
-        if (targetPatente && t.vehiculo_dominio.toUpperCase() === targetPatente) return true;
-        if (targetCliente && (t.cliente_nombre || '').toLowerCase() === targetCliente.toLowerCase()) return true;
-        return false;
-      });
+    if (targetTurnoId) {
+      turno = localTurnosSeed.find(t => t.id === targetTurnoId);
+    } else if (targetNroTurno) {
+      turno = localTurnosSeed.find(t => t.nro_turno === targetNroTurno);
+    } else if (targetPatente) {
+      turno =
+        localTurnosSeed.find(t => t.vehiculo_dominio.toUpperCase() === targetPatente && t.estado === 'Finalizado') ||
+        localTurnosSeed.find(t => t.vehiculo_dominio.toUpperCase() === targetPatente);
+    } else if (targetCliente) {
+      turno =
+        localTurnosSeed.find(t => (t.cliente_nombre || '').toLowerCase() === targetCliente.toLowerCase() && t.estado === 'Finalizado') ||
+        localTurnosSeed.find(t => (t.cliente_nombre || '').toLowerCase() === targetCliente.toLowerCase());
     }
 
     if (!turno) {
@@ -437,13 +436,16 @@ export const modificarPresupuesto = async (req: Request, res: Response): Promise
     const targetTurnoId = String(turno_id || turnoId || '').trim();
     const targetPatente = String(patente || vehiculo_dominio || vehiculoDominio || '').trim().toUpperCase();
 
-    const presupuesto = localPresupuestosSeed.find(p => {
-      if (targetId && (p.id === targetId || p.turno_id === targetId)) return true;
-      if (targetNro && p.nro_presupuesto === targetNro) return true;
-      if (targetTurnoId && p.turno_id === targetTurnoId) return true;
-      if (targetPatente && p.vehiculo_dominio.toUpperCase() === targetPatente) return true;
-      return false;
-    });
+    let presupuesto: LocalPresupuesto | undefined;
+    if (targetId) {
+      presupuesto = localPresupuestosSeed.find(p => p.id === targetId || p.turno_id === targetId);
+    } else if (targetNro) {
+      presupuesto = localPresupuestosSeed.find(p => p.nro_presupuesto === targetNro);
+    } else if (targetTurnoId) {
+      presupuesto = localPresupuestosSeed.find(p => p.turno_id === targetTurnoId);
+    } else if (targetPatente) {
+      presupuesto = localPresupuestosSeed.find(p => p.vehiculo_dominio.toUpperCase() === targetPatente);
+    }
 
     if (!presupuesto) {
       res.status(404).json({
@@ -580,12 +582,11 @@ export const verificarVencimientoPresupuesto = async (req: Request, res: Respons
     }
 
     const candidatos = localPresupuestosSeed.filter(p => {
-      if (targetId && (p.id === targetId || p.turno_id === targetId)) return true;
-      if (targetNro && p.nro_presupuesto === targetNro) return true;
-      if (targetTurnoId && p.turno_id === targetTurnoId) return true;
-      if (targetPatente && p.vehiculo_dominio.toUpperCase() === targetPatente) return true;
-      if (!targetId && !targetNro && !targetTurnoId && !targetPatente) return true;
-      return false;
+      if (targetId) return p.id === targetId || p.turno_id === targetId;
+      if (targetNro) return p.nro_presupuesto === targetNro;
+      if (targetTurnoId) return p.turno_id === targetTurnoId;
+      if (targetPatente) return p.vehiculo_dominio.toUpperCase() === targetPatente;
+      return true;
     });
 
     if (candidatos.length === 0) {

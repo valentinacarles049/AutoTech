@@ -2376,12 +2376,24 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       });
 
       const resData = await response.json();
-      if (response.ok && resData.success && resData.turno) {
+      if (!response.ok || !resData.success) {
+        return {
+          success: false,
+          error: resData.error || resData.message || 'No se pudo registrar la ausencia del turno',
+          message: resData.message || resData.error || 'No se pudo registrar la ausencia del turno',
+          estado: resData.estado,
+          presupuestoHabilitado: false,
+          presupuesto_habilitado: false
+        };
+      }
+
+      if (resData.success && resData.turno) {
+        const nuevoEstado = resData.turno.estado || resData.estado || 'Ausente';
         setTurnos(prev => prev.map(t => {
           if (t.id === resData.turno.id || t.nroTurno === resData.turno.nro_turno) {
             return {
               ...t,
-              estado: 'Ausente',
+              estado: nuevoEstado,
               presupuestoHabilitado: false,
               vehiculoPresentado: false
             };
@@ -2391,8 +2403,8 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
         return {
           success: true,
-          message: 'El turno pasó al estado "Ausente" por no presentación del vehículo',
-          estado: 'Ausente',
+          message: resData.message || 'El turno pasó al estado "Ausente" por no presentación del vehículo',
+          estado: nuevoEstado,
           presupuestoHabilitado: false,
           presupuesto_habilitado: false,
           turno: resData.turno
@@ -2402,22 +2414,15 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       // Fallback local
     }
 
-    let targetTurno = turnos.find(t => {
-      if (targetId && t.id === targetId) return true;
-      if (targetNro && t.nroTurno === targetNro) return true;
-      if (targetPatente && t.vehiculoDominio.toUpperCase() === targetPatente && !targetId && !targetNro) {
-        return normalizeContextDate(t.fecha).iso === normHoy.iso;
-      }
-      return false;
-    });
-
-    if (!targetTurno) {
-      targetTurno = turnos.find(t => {
-        if (targetId && t.id === targetId) return true;
-        if (targetNro && t.nroTurno === targetNro) return true;
-        if (targetPatente && t.vehiculoDominio.toUpperCase() === targetPatente && !targetId && !targetNro) return true;
-        return false;
-      });
+    let targetTurno: Turno | undefined;
+    if (targetId) {
+      targetTurno = turnos.find(t => t.id === targetId);
+    } else if (targetNro) {
+      targetTurno = turnos.find(t => t.nroTurno === targetNro);
+    } else if (targetPatente) {
+      targetTurno =
+        turnos.find(t => t.vehiculoDominio.toUpperCase() === targetPatente && normalizeContextDate(t.fecha).iso === normHoy.iso) ||
+        turnos.find(t => t.vehiculoDominio.toUpperCase() === targetPatente);
     }
 
     if (!targetTurno) {
@@ -2427,6 +2432,34 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         message: 'Turno no encontrado',
         presupuestoHabilitado: false,
         presupuesto_habilitado: false
+      };
+    }
+
+    if (targetTurno.estado.trim().toLowerCase() !== 'confirmado') {
+      return {
+        success: false,
+        error: 'Sólo se pueden marcar como ausentes turnos en estado Confirmado',
+        message: 'Sólo se pueden marcar como ausentes turnos en estado Confirmado',
+        estado: targetTurno.estado,
+        presupuestoHabilitado: Boolean(targetTurno.presupuestoHabilitado),
+        presupuesto_habilitado: Boolean(targetTurno.presupuestoHabilitado)
+      };
+    }
+
+    const normTurnoFecha = normalizeContextDate(targetTurno.fecha);
+    const refHora = normalizeContextTime(data.horaActual || '09:00');
+    const turnoHora = normalizeContextTime(targetTurno.hora || '09:00');
+    const refKey = `${normHoy.iso}T${refHora}`;
+    const turnoKey = `${normTurnoFecha.iso}T${turnoHora}`;
+
+    if (normHoy.iso && normTurnoFecha.iso && refKey < turnoKey) {
+      return {
+        success: false,
+        error: `Aún no llegó la fecha y hora del turno (${targetTurno.fecha} a las ${targetTurno.hora}) para registrar la ausencia`,
+        message: `Aún no llegó la fecha y hora del turno (${targetTurno.fecha} a las ${targetTurno.hora}) para registrar la ausencia`,
+        estado: targetTurno.estado,
+        presupuestoHabilitado: Boolean(targetTurno.presupuestoHabilitado),
+        presupuesto_habilitado: Boolean(targetTurno.presupuestoHabilitado)
       };
     }
 
@@ -2525,19 +2558,14 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       // Fallback local en memoria
     }
 
-    // Buscar el turno
-    let targetTurno = turnos.find(t => {
-      if (targetTurnoId && t.id === targetTurnoId) return true;
-      if (targetPatente && t.vehiculoDominio.toUpperCase() === targetPatente && t.estado === 'Finalizado') return true;
-      return false;
-    });
-
-    if (!targetTurno) {
-      targetTurno = turnos.find(t => {
-        if (targetTurnoId && t.id === targetTurnoId) return true;
-        if (targetPatente && t.vehiculoDominio.toUpperCase() === targetPatente) return true;
-        return false;
-      });
+    // Buscar el turno respetando estrictamente targetTurnoId si fue provisto
+    let targetTurno: Turno | undefined;
+    if (targetTurnoId) {
+      targetTurno = turnos.find(t => t.id === targetTurnoId);
+    } else if (targetPatente) {
+      targetTurno =
+        turnos.find(t => t.vehiculoDominio.toUpperCase() === targetPatente && t.estado === 'Finalizado') ||
+        turnos.find(t => t.vehiculoDominio.toUpperCase() === targetPatente);
     }
 
     if (!targetTurno) {

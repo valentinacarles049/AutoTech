@@ -297,6 +297,41 @@ console.log('===================================================================
     `presupuesto_habilitado: ${turnoJuanAusente.presupuesto_habilitado}`
   );
 
+  // Validar que si aún NO llegó la hora del turno (ej: son las 08:00 y el turno es a las 09:00), NO pasa a "Ausente" y devuelve HTTP 400 manteniendo el estado "Confirmado"
+  const turnoAntesDeHora: LocalTurno = {
+    id: 'turno-hu15-antes-hora',
+    nro_turno: getNextTurnoNumber(),
+    cliente_id: juanPerez?.id || 'cli-juan-perez',
+    cliente_nombre: 'Juan Pérez',
+    cliente_documento: '30123456',
+    vehiculo_dominio: 'AB123CD',
+    motivo_consulta: 'Mantenimiento general',
+    sucursal: 'Centro',
+    fecha: '15/11/2026',
+    hora: '11:00',
+    estado: 'Confirmado',
+    presupuesto_habilitado: false,
+    vehiculo_presentado: false
+  };
+  localTurnosSeed.push(turnoAntesDeHora);
+
+  const { req: reqAntesHora, res: resAntesHora, getStatus: getStatusAntesHora, getData: getDataAntesHora } = createMockReqRes({
+    body: {
+      turno_id: 'turno-hu15-antes-hora',
+      patente: 'AB123CD',
+      fecha_actual: '15/11/2026',
+      hora_actual: '09:00'
+    }
+  });
+
+  await registrarAusenciaTurno(reqAntesHora, resAntesHora);
+  assert(
+    getStatusAntesHora() === 400 &&
+    getDataAntesHora()?.success === false &&
+    turnoAntesDeHora.estado === 'Confirmado',
+    'No permite marcar como "Ausente" un turno antes de su fecha y hora programada (queda en "Confirmado" en API y UI)'
+  );
+
   // ----------------------------------------------------------------------
   // 5. CRITERIOS DE ACEPTACIÓN ADICIONALES Y DINAMISMO
   // ----------------------------------------------------------------------

@@ -38,7 +38,7 @@ router.put(
 );
 
 // Alternativa pública para fallback/testing de modificación
-router.put('/public-update/:patente?', modificarVehiculo);
+router.put('/public-update{/:patente}', modificarVehiculo);
 
 // Listado de vehículos (opcionalmente filtrado por cliente_id)
 router.get('/', listarVehiculos);

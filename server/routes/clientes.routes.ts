@@ -42,7 +42,7 @@ router.put(
 );
 
 // Fallback abierto para sincronización local si es necesario
-router.put('/public-update/:id?', modificarCliente);
+router.put('/public-update{/:id}', modificarCliente);
 
 // Listado de clientes
 router.get('/', listarClientes);
