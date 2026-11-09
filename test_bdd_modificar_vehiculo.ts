@@ -18,7 +18,14 @@ import {
   localClientsSeed,
   LocalVehicle 
 } from './server/db';
-import { modificarVehiculo, listarVehiculos } from './server/controllers/vehiculos.controller';
+import {
+  modificarVehiculo,
+  listarVehiculos,
+  registrarVehiculo,
+  verificarPatente,
+  normalizePatente
+} from './server/controllers/vehiculos.controller';
+import { normalizePatente as normalizePatenteFrontend } from './src/utils/patente';
 import { isScreenAllowed } from './src/utils/permissions';
 import bcrypt from 'bcryptjs';
 
@@ -274,6 +281,117 @@ modificarVehiculo(reqMismaPatente, resMismaPatente);
 assert(
   resMismaPatente.getStatusCode() === 200 && resMismaPatente.getData().vehiculo.kilometraje_actual === 46000,
   'Conservar la misma patente no produce conflicto de duplicidad y actualiza el kilometraje a 46000 km'
+);
+
+// ----------------------------------------------------------------------
+// 4B. BUG FIX HU-08: Patentes equivalentes con o sin guiones y espacios
+// ----------------------------------------------------------------------
+console.log('\n📋 4B. BUG FIX HU-08: Validación normalizada de patentes (con/sin guiones y espacios):');
+
+// Reproducción exacta del bug: Modificar AC456EF -> AF123ZZ cuando ya existe AF-123-ZZ
+const vehAc456 = localVehiclesSeed.find(v => v.dominio === 'AC456EF');
+assert(
+  Boolean(vehAc456 && vehiculoExistente),
+  'Existen ambos vehículos semilla "AC456EF" (sin guiones) y "AF-123-ZZ" (con guiones)'
+);
+
+const { req: reqDupSinGuiones, res: resDupSinGuiones } = createMockReqRes({
+  params: { patente: 'AC456EF' },
+  body: {
+    patente_original: 'AC456EF',
+    patente: 'AF123ZZ',
+    kilometraje: 22000
+  }
+});
+await modificarVehiculo(reqDupSinGuiones, resDupSinGuiones);
+assert(
+  resDupSinGuiones.getStatusCode() === 409 &&
+  resDupSinGuiones.getData().error === 'Ya existe un vehículo con esa patente en el sistema' &&
+  localVehiclesSeed.find(v => v.dominio === 'AC456EF') !== undefined,
+  'Rechaza cambiar AC456EF a "AF123ZZ" (sin guiones) porque ya existe "AF-123-ZZ" y conserva "AC456EF"',
+  `HTTP: ${resDupSinGuiones.getStatusCode()}, Error: ${resDupSinGuiones.getData()?.error}`
+);
+
+// Caso con espacios y minúsculas: 'af 123 zz'
+const { req: reqDupEspacios, res: resDupEspacios } = createMockReqRes({
+  params: { patente: 'AC456EF' },
+  body: {
+    patente: 'af 123 zz',
+    kilometraje: 22000
+  }
+});
+await modificarVehiculo(reqDupEspacios, resDupEspacios);
+assert(
+  resDupEspacios.getStatusCode() === 409 &&
+  resDupEspacios.getData().error === 'Ya existe un vehículo con esa patente en el sistema',
+  'Rechaza cambiar AC456EF a "af 123 zz" (espacios y minúsculas) detectando equivalencia con "AF-123-ZZ"'
+);
+
+// Caso inverso: Intentar cambiar AF-123-ZZ a "AC-456-EF" (con guiones) cuando ya existe "AC456EF"
+const { req: reqDupConGuiones, res: resDupConGuiones } = createMockReqRes({
+  params: { patente: 'AF-123-ZZ' },
+  body: {
+    patente: 'AC-456-EF',
+    kilometraje: 64200
+  }
+});
+await modificarVehiculo(reqDupConGuiones, resDupConGuiones);
+assert(
+  resDupConGuiones.getStatusCode() === 409 &&
+  resDupConGuiones.getData().error === 'Ya existe un vehículo con esa patente en el sistema' &&
+  localVehiclesSeed.some(v => v.dominio === 'AF-123-ZZ'),
+  'Caso inverso: Rechaza cambiar AF-123-ZZ a "AC-456-EF" (agregando guiones) porque ya existe "AC456EF"'
+);
+
+// Verificar también en HU-07 registrarVehiculo y verificarPatente
+const { req: reqRegDupNorm, res: resRegDupNorm } = createMockReqRes({
+  body: {
+    patente: 'AF123ZZ',
+    marca: 'Ford',
+    modelo: 'Focus',
+    anio: 2024,
+    cliente_id: juanPerez?.id || 'cli-juan-perez'
+  }
+});
+await registrarVehiculo(reqRegDupNorm, resRegDupNorm);
+assert(
+  resRegDupNorm.getStatusCode() === 409 &&
+  resRegDupNorm.getData().error === 'Ya existe un vehículo con esa patente en el sistema',
+  'HU-07 registrarVehiculo: Rechaza alta con patente "AF123ZZ" porque ya existe "AF-123-ZZ"'
+);
+
+const { req: reqCheckNorm, res: resCheckNorm } = createMockReqRes({
+  query: { patente: 'ac 456-ef' }
+});
+await verificarPatente(reqCheckNorm, resCheckNorm);
+assert(
+  resCheckNorm.getStatusCode() === 200 && resCheckNorm.getData().exists === true,
+  'verificarPatente reconoce "ac 456-ef" como existente al estar registrado "AC456EF"'
+);
+
+// Permitir modificar otros datos del mismo vehículo buscándolo sin guiones sin falso positivo
+const kmOrigHilux = vehiculoExistente!.kilometraje_actual;
+const { req: reqSelfNorm, res: resSelfNorm } = createMockReqRes({
+  params: { patente: 'AF123ZZ' },
+  body: {
+    kilometraje: kmOrigHilux + 100
+  }
+});
+await modificarVehiculo(reqSelfNorm, resSelfNorm);
+assert(
+  resSelfNorm.getStatusCode() === 200 &&
+  resSelfNorm.getData().vehiculo.dominio === 'AF-123-ZZ' &&
+  resSelfNorm.getData().vehiculo.kilometraje_actual === kmOrigHilux + 100,
+  'Modificar kilometraje de "AF-123-ZZ" buscándolo como "AF123ZZ" actualiza sin falso conflicto y preserva su dominio'
+);
+vehiculoExistente!.kilometraje_actual = kmOrigHilux;
+
+// Consistencia Frontend <-> Backend normalizePatente
+assert(
+  normalizePatente('AF-123-ZZ') === 'AF123ZZ' &&
+  normalizePatenteFrontend('af 123 zz') === 'AF123ZZ' &&
+  normalizePatente('  ab-123-cd  ') === normalizePatenteFrontend('AB123CD'),
+  'Helpers normalizePatente (Backend y Frontend) normalizan guiones, espacios y mayúsculas de forma idéntica'
 );
 
 // ----------------------------------------------------------------------

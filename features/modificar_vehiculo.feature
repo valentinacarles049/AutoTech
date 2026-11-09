@@ -30,6 +30,15 @@ Característica: Modificar vehículo
     Entonces el sistema muestra el mensaje "Ya existe un vehículo con esa patente en el sistema"
     Y el vehículo conserva la patente "AB123CD"
 
+  Escenario: La patente modificada no puede repetirse con o sin guiones ni espacios
+    Dado que existe el vehículo con patente "AF-123-ZZ"
+    Y existe el vehículo con patente "AC456EF"
+    Cuando busco el vehículo con patente "AC456EF"
+    Y cambio la patente a "AF123ZZ"
+    Y presiono "Guardar"
+    Entonces el sistema muestra el mensaje "Ya existe un vehículo con esa patente en el sistema"
+    Y el vehículo conserva la patente "AC456EF"
+
   Escenario: Actualización de datos para corregir errores
     Cuando busco el vehículo con patente "AB123CD"
     Y cambio el modelo a "Corolla 2.0 SEG Hybrid" y el año a 2023

@@ -2,6 +2,17 @@ import { Request, Response } from 'express';
 import { supabase, isSupabaseConnected, localVehiclesSeed, LocalVehicle, localClientsSeed } from '../db';
 
 /**
+ * Normaliza una patente/dominio eliminando guiones, espacios y separadores y convirtiendo a mayúsculas,
+ * para garantizar comparaciones consistentes sin importar el formato de ingreso (ej: "AF-123-ZZ" === "AF123ZZ").
+ */
+export const normalizePatente = (patente: string): string => {
+  return String(patente || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[\s\-_.\u2013\u2014]+/g, '');
+};
+
+/**
  * HU-06: Registrar Vehículo de Cliente
  * 
  * Criterios de Aceptación:
@@ -26,6 +37,7 @@ export const registrarVehiculo = async (req: Request, res: Response): Promise<vo
     } = req.body;
 
     const valPatente = String(patente || dominio || '').trim().toUpperCase();
+    const normValPatente = normalizePatente(valPatente);
     const valMarca = String(marca || '').trim();
     const valModelo = String(modelo || '').trim();
     const parsedAnio = Number(año ?? anio);
@@ -34,7 +46,7 @@ export const registrarVehiculo = async (req: Request, res: Response): Promise<vo
     const valEstado = String(estado || 'Activo').trim();
 
     // 1. Criterio 1: Campos obligatorios: patente, marca, modelo y año
-    if (!valPatente || !valMarca || !valModelo || !parsedAnio) {
+    if (!normValPatente || !valMarca || !valModelo || !parsedAnio) {
       res.status(400).json({
         error: 'Los campos patente, marca, modelo y año son obligatorios'
       });
@@ -57,15 +69,19 @@ export const registrarVehiculo = async (req: Request, res: Response): Promise<vo
       return;
     }
 
-    // 2. Criterio 2: La patente es única en el sistema
+    // 2. Criterio 2: La patente es única en el sistema (comparación normalizada sin guiones ni espacios)
     // A) Verificar en Supabase (si está conectado)
     if (isSupabaseConnected && supabase) {
       try {
-        const { data: existingDb } = await supabase
+        const likePattern = `%${normValPatente.split('').join('%')}%`;
+        const { data: candidates } = await supabase
           .from('vehiculos')
           .select('dominio')
-          .eq('dominio', valPatente)
-          .maybeSingle();
+          .ilike('dominio', likePattern);
+
+        const existingDb = candidates?.find(
+          v => normalizePatente(v.dominio) === normValPatente
+        );
 
         if (existingDb) {
           res.status(409).json({
@@ -80,7 +96,7 @@ export const registrarVehiculo = async (req: Request, res: Response): Promise<vo
 
     // B) Verificar en memoria local
     const existingLocal = localVehiclesSeed.find(
-      v => v.dominio.toUpperCase() === valPatente
+      v => normalizePatente(v.dominio) === normValPatente
     );
 
     if (existingLocal) {
@@ -188,8 +204,9 @@ export const verificarPatente = async (req: Request, res: Response): Promise<voi
   try {
     const { patente, dominio } = req.query;
     const cleanPatente = String(patente || dominio || '').trim().toUpperCase();
+    const normCleanPatente = normalizePatente(cleanPatente);
 
-    if (!cleanPatente) {
+    if (!normCleanPatente) {
       res.status(400).json({ error: 'La patente es obligatoria para verificar' });
       return;
     }
@@ -197,13 +214,13 @@ export const verificarPatente = async (req: Request, res: Response): Promise<voi
     // Verificar en Supabase
     if (isSupabaseConnected && supabase) {
       try {
-        const { data } = await supabase
+        const likePattern = `%${normCleanPatente.split('').join('%')}%`;
+        const { data: candidates } = await supabase
           .from('vehiculos')
           .select('dominio')
-          .eq('dominio', cleanPatente)
-          .maybeSingle();
+          .ilike('dominio', likePattern);
 
-        if (data) {
+        if (candidates && candidates.some(v => normalizePatente(v.dominio) === normCleanPatente)) {
           res.status(200).json({ exists: true, patente: cleanPatente });
           return;
         }
@@ -213,7 +230,7 @@ export const verificarPatente = async (req: Request, res: Response): Promise<voi
     }
 
     // Verificar en memoria local
-    const exists = localVehiclesSeed.some(v => v.dominio.toUpperCase() === cleanPatente);
+    const exists = localVehiclesSeed.some(v => normalizePatente(v.dominio) === normCleanPatente);
     res.status(200).json({ exists, patente: cleanPatente });
   } catch (error: any) {
     res.status(500).json({ error: 'Error al verificar patente', details: error.message });
@@ -229,6 +246,7 @@ export const testCleanupVehiculos = async (req: Request, res: Response): Promise
     const targetPatentes: string[] = Array.isArray(patentes) 
       ? patentes.map((p: string) => String(p).trim().toUpperCase())
       : ['AG-111-ZZ', 'TEST-001', 'TEST-DUP-01', 'XYZ-999-TT'];
+    const normTargetPatentes = targetPatentes.map(normalizePatente);
 
     // Limpiar de Supabase si está conectado
     if (isSupabaseConnected && supabase) {
@@ -245,7 +263,7 @@ export const testCleanupVehiculos = async (req: Request, res: Response): Promise
     // Limpiar de memoria local
     const initialLen = localVehiclesSeed.length;
     for (let i = localVehiclesSeed.length - 1; i >= 0; i--) {
-      if (targetPatentes.includes(localVehiclesSeed[i].dominio.toUpperCase())) {
+      if (normTargetPatentes.includes(normalizePatente(localVehiclesSeed[i].dominio))) {
         localVehiclesSeed.splice(i, 1);
       }
     }
@@ -270,6 +288,7 @@ export const testCleanupVehiculos = async (req: Request, res: Response): Promise
 export const modificarVehiculo = async (req: Request, res: Response): Promise<void> => {
   try {
     const origPatente = String(req.params.patente || req.body.patente_original || req.body.dominio_original || req.body.patente || req.body.dominio || '').trim().toUpperCase();
+    const normOrigPatente = normalizePatente(origPatente);
 
     const {
       patente,
@@ -284,25 +303,27 @@ export const modificarVehiculo = async (req: Request, res: Response): Promise<vo
       estado
     } = req.body;
 
-    if (!origPatente) {
+    if (!normOrigPatente) {
       res.status(400).json({ error: 'La patente original del vehículo es requerida' });
       return;
     }
 
-    // 1. Buscar vehículo en memoria local
+    // 1. Buscar vehículo en memoria local (normalizando guiones y espacios)
     let vehiculoIndex = localVehiclesSeed.findIndex(
-      v => v.dominio.toUpperCase() === origPatente
+      v => normalizePatente(v.dominio) === normOrigPatente
     );
 
     let dbVehiculo: any = null;
     if (vehiculoIndex === -1 && isSupabaseConnected && supabase) {
       try {
-        const { data } = await supabase
+        const likePattern = `%${normOrigPatente.split('').join('%')}%`;
+        const { data: candidates } = await supabase
           .from('vehiculos')
           .select('*')
-          .eq('dominio', origPatente)
-          .maybeSingle();
-        if (data) dbVehiculo = data;
+          .ilike('dominio', likePattern);
+        if (candidates && candidates.length > 0) {
+          dbVehiculo = candidates.find(d => normalizePatente(d.dominio) === normOrigPatente) || null;
+        }
       } catch (err) {
         console.warn('[Backend Vehículos] Error buscando vehículo en Supabase:', err);
       }
@@ -314,6 +335,8 @@ export const modificarVehiculo = async (req: Request, res: Response): Promise<vo
     }
 
     const currentVehiculo = vehiculoIndex !== -1 ? localVehiclesSeed[vehiculoIndex] : dbVehiculo;
+    const storedOrigDominio = String(currentVehiculo.dominio || origPatente).trim().toUpperCase();
+    const normStoredOrigDominio = normalizePatente(storedOrigDominio);
     const currentKm = Number(currentVehiculo.kilometraje_actual ?? currentVehiculo.mileage ?? 0);
 
     // 2. Criterio 2: El kilometraje no puede ser menor al registrado
@@ -332,11 +355,23 @@ export const modificarVehiculo = async (req: Request, res: Response): Promise<vo
       }
     }
 
-    // 3. Criterio 1: La patente modificada no puede repetirse
-    const targetPatente = String(patente || dominio || origPatente).trim().toUpperCase();
-    if (targetPatente && targetPatente !== origPatente) {
+    // 3. Criterio 1: La patente modificada no puede repetirse (sin distinción de guiones ni espacios)
+    const hasNewPatente = patente !== undefined || dominio !== undefined;
+    const targetPatente = hasNewPatente
+      ? String(patente ?? dominio ?? '').trim().toUpperCase()
+      : storedOrigDominio;
+    const normTargetPatente = normalizePatente(targetPatente);
+
+    if (!normTargetPatente) {
+      res.status(400).json({ error: 'La patente del vehículo es obligatoria' });
+      return;
+    }
+
+    if (normTargetPatente !== normStoredOrigDominio) {
       const dupLocal = localVehiclesSeed.find(
-        v => v.dominio.toUpperCase() === targetPatente && v.dominio.toUpperCase() !== origPatente
+        (v, idx) =>
+          normalizePatente(v.dominio) === normTargetPatente &&
+          (vehiculoIndex !== -1 ? idx !== vehiculoIndex : normalizePatente(v.dominio) !== normStoredOrigDominio)
       );
       if (dupLocal) {
         res.status(409).json({
@@ -347,11 +382,17 @@ export const modificarVehiculo = async (req: Request, res: Response): Promise<vo
 
       if (isSupabaseConnected && supabase) {
         try {
-          const { data: dupDb } = await supabase
+          const likePattern = `%${normTargetPatente.split('').join('%')}%`;
+          const { data: dupCandidates } = await supabase
             .from('vehiculos')
             .select('dominio')
-            .eq('dominio', targetPatente)
-            .maybeSingle();
+            .ilike('dominio', likePattern);
+
+          const dupDb = dupCandidates?.find(
+            d =>
+              normalizePatente(d.dominio) === normTargetPatente &&
+              normalizePatente(d.dominio) !== normStoredOrigDominio
+          );
 
           if (dupDb) {
             res.status(409).json({
@@ -367,7 +408,7 @@ export const modificarVehiculo = async (req: Request, res: Response): Promise<vo
 
     // Actualizar campos
     const updatedKm = rawKm !== undefined ? Number(rawKm) : currentKm;
-    const updatedPatente = targetPatente || origPatente;
+    const updatedPatente = targetPatente || storedOrigDominio;
     const updatedMarca = marca ? String(marca).trim() : currentVehiculo.marca;
     const updatedModelo = modelo ? String(modelo).trim() : currentVehiculo.modelo;
     const updatedAnio = año || anio ? Number(año || anio) : currentVehiculo.anio;
@@ -396,7 +437,7 @@ export const modificarVehiculo = async (req: Request, res: Response): Promise<vo
             anio: updatedAnio,
             estado: updatedEstado
           })
-          .eq('dominio', origPatente);
+          .eq('dominio', storedOrigDominio);
       } catch (err) {
         console.warn('[Backend Vehículos] Error actualizando vehículo en Supabase:', err);
       }
@@ -432,8 +473,9 @@ export const modificarVehiculo = async (req: Request, res: Response): Promise<vo
 export const restaurarVehiculoTest = async (req: Request, res: Response): Promise<void> => {
   const { patente, kilometraje_actual, marca, modelo, anio } = req.body;
   const targetPatente = String(patente || 'AB123CD').trim().toUpperCase();
+  const normTargetPatente = normalizePatente(targetPatente);
 
-  const veh = localVehiclesSeed.find(v => v.dominio.toUpperCase() === targetPatente);
+  const veh = localVehiclesSeed.find(v => normalizePatente(v.dominio) === normTargetPatente);
   if (veh) {
     if (kilometraje_actual !== undefined) veh.kilometraje_actual = Number(kilometraje_actual);
     if (marca) veh.marca = marca;

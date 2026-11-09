@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Plus, Search, Car, User, Phone, FileText, Check, X, Filter, UserX, AlertCircle, Edit2, Wrench } from 'lucide-react';
 import { useWorkshop } from '../context/WorkshopContext';
 import { Client, Vehicle } from '../types/autotech';
+import { normalizePatente } from '../utils/patente';
 
 export const ComercialScreen: React.FC = () => {
   const { clients, selectedClientId, setSelectedClientId, addClient, updateClient, vehicles, addVehicle, updateVehicle, setCurrentScreen } = useWorkshop();
@@ -232,6 +233,10 @@ export const ComercialScreen: React.FC = () => {
     e.preventDefault();
     if (!selectedEditVehicle) return;
     setEditVehicleError(null);
+    if (!normalizePatente(editVehPlate)) {
+      setEditVehicleError('La patente del vehículo es obligatoria');
+      return;
+    }
     setIsSubmittingEditVehicle(true);
 
     const res = await updateVehicle(selectedEditVehicle.plate, {
@@ -272,7 +277,7 @@ export const ComercialScreen: React.FC = () => {
     const cleanYear = Number(newYear);
 
     // Criterio 1: Campos obligatorios: patente, marca, modelo y año
-    if (!cleanPlate || !cleanBrand || !cleanModel || !cleanYear) {
+    if (!normalizePatente(cleanPlate) || !cleanBrand || !cleanModel || !cleanYear) {
       setVehicleModalError('Los campos patente, marca, modelo y año son obligatorios');
       return;
     }

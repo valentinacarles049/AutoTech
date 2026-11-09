@@ -30,6 +30,7 @@ import {
 } from '../types/autotech';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { getDefaultScreenForRole, isScreenAllowed } from '../utils/permissions';
+import { normalizePatente } from '../utils/patente';
 
 export type ScreenId = 'dashboard' | 'comercial' | 'nuevo-cliente' | 'recepcion' | 'operativa' | 'supervision' | 'inventario';
 
@@ -1311,13 +1312,14 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     vin?: string;
   }): Promise<{ success: boolean; error?: string; message?: string; vehicle?: Vehicle }> => {
     const valPlate = (newVeh.plate || '').trim().toUpperCase();
+    const normValPlate = normalizePatente(valPlate);
     const valMarca = (newVeh.marca || (newVeh.brandModel ? newVeh.brandModel.split(' ')[0] : '')).trim();
     const valModelo = (newVeh.modelo || (newVeh.brandModel ? newVeh.brandModel.split(' ').slice(1).join(' ') : '')).trim();
     const valYear = Number(newVeh.year);
     const valClientId = (newVeh.clientId || '').trim();
 
     // 1. Criterio 1: Campos obligatorios: patente, marca, modelo y año
-    if (!valPlate || !valMarca || !valModelo || !valYear) {
+    if (!normValPlate || !valMarca || !valModelo || !valYear) {
       return {
         success: false,
         error: 'Los campos patente, marca, modelo y año son obligatorios'
@@ -1342,7 +1344,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     // 2. Criterio 2: La patente es única en el sistema
     const alreadyExists = vehicles.some(
-      v => (v.plate || v.dominio || '').trim().toUpperCase() === valPlate
+      v => normalizePatente(v.plate || v.dominio || '') === normValPlate
     );
 
     if (alreadyExists) {
@@ -1450,7 +1452,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   ): Promise<{ success: boolean; error?: string; message?: string; vehicle?: Vehicle }> => {
     const cleanOrigPlate = plate.trim().toUpperCase();
-    const current = vehicles.find(v => v.plate.toUpperCase() === cleanOrigPlate || v.dominio?.toUpperCase() === cleanOrigPlate);
+    const current = vehicles.find(v => normalizePatente(v.plate || v.dominio || '') === normalizePatente(cleanOrigPlate));
     if (!current) {
       return { success: false, error: 'Vehículo no encontrado' };
     }
@@ -1469,13 +1471,23 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       };
     }
 
-    const targetPlate = String(updatedData.plate || updatedData.dominio || cleanOrigPlate).trim().toUpperCase();
+    const storedOrigPlate = String(current.dominio || current.plate || cleanOrigPlate).trim().toUpperCase();
+    const normStoredOrigPlate = normalizePatente(storedOrigPlate);
+    const hasNewPlate = updatedData.plate !== undefined || updatedData.dominio !== undefined;
+    const targetPlate = hasNewPlate
+      ? String(updatedData.plate ?? updatedData.dominio ?? '').trim().toUpperCase()
+      : storedOrigPlate;
+    const normTargetPlate = normalizePatente(targetPlate);
+
+    if (!normTargetPlate) {
+      return { success: false, error: 'La patente del vehículo es obligatoria' };
+    }
 
     // Criterio 1: La patente modificada no puede repetirse
-    if (targetPlate !== cleanOrigPlate) {
+    if (normTargetPlate !== normStoredOrigPlate) {
       const duplicate = vehicles.find(v => 
-        (v.plate.toUpperCase() === targetPlate || v.dominio?.toUpperCase() === targetPlate) &&
-        v.plate.toUpperCase() !== cleanOrigPlate
+        normalizePatente(v.plate || v.dominio || '') === normTargetPlate &&
+        normalizePatente(v.plate || v.dominio || '') !== normStoredOrigPlate
       );
       if (duplicate) {
         return {
@@ -1487,12 +1499,12 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     // Actualizar en backend Node/Express
     try {
-      const response = await fetch(`http://localhost:4000/api/vehiculos/${encodeURIComponent(cleanOrigPlate)}`, {
+      const response = await fetch(`http://localhost:4000/api/vehiculos/${encodeURIComponent(storedOrigPlate)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          patente_original: cleanOrigPlate,
+          patente_original: storedOrigPlate,
           patente: targetPlate,
           dominio: targetPlate,
           kilometraje_actual: newKm,
@@ -1531,7 +1543,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       año: newYear
     };
 
-    setVehicles(prev => prev.map(v => v.plate.toUpperCase() === cleanOrigPlate ? updatedVehicle : v));
+    setVehicles(prev => prev.map(v => normalizePatente(v.plate || v.dominio || '') === normStoredOrigPlate ? updatedVehicle : v));
 
     // Si Supabase está configurado, actualizar
     if (isSupabaseConfigured && supabase) {
@@ -1545,7 +1557,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             modelo: newModel,
             anio: newYear
           })
-          .eq('dominio', cleanOrigPlate);
+          .eq('dominio', storedOrigPlate);
       } catch (err) {
         console.warn('Error actualizando vehículo en Supabase:', err);
       }
