@@ -103,11 +103,33 @@ export interface UpdateVehicleResult {
 // ==========================================
 // 3. ESTADO TURNO (UML MVP: descripcionEstado - HU-09: 'Solicitado')
 // ==========================================
-export type TurnoEstadoNombre = 'Solicitado' | 'Pendiente' | 'Confirmado (24hs)' | 'Confirmado' | 'Reprogramado' | 'En Taller' | 'Cancelado' | 'Finalizado' | 'Ausente';
+export type TurnoEstadoNombre = 'Solicitado' | 'Pendiente' | 'Pendiente de Confirmación (24hs)' | 'Confirmado (24hs)' | 'Confirmado' | 'Reprogramado' | 'En Taller' | 'Cancelado' | 'Finalizado' | 'Ausente';
 
 export interface EstadoTurno {
   id: string;
   descripcionEstado: TurnoEstadoNombre;
+}
+
+// ==========================================
+// ==========================================
+// 3.0 CAMBIO ESTADO TURNO (UML MODP - HU-09, HU-11, HU-12, HU-13, HU-15)
+// ==========================================
+export interface CambioEstadoTurno {
+  id: string;
+  turnoId?: string;
+  turno_id?: string;
+  estado: TurnoEstadoNombre | string;
+  estadoTurnoId?: number;
+  estado_turno_id?: number;
+  fechaInicio: string; // formato "DD/MM/YYYY"
+  fecha_inicio: string; // formato "DD/MM/YYYY"
+  horaInicio: string; // formato "HH:mm"
+  hora_inicio: string; // formato "HH:mm"
+  fechaFin: string | null; // formato "DD/MM/YYYY" o null si es el estado vigente
+  fecha_fin: string | null; // formato "DD/MM/YYYY" o null si es el estado vigente
+  horaFin: string | null; // formato "HH:mm" o null si es el estado vigente
+  hora_fin: string | null; // formato "HH:mm" o null si es el estado vigente
+  observacion?: string | null;
 }
 
 // ==========================================
@@ -172,8 +194,10 @@ export interface Turno {
   notificacionEnviada?: boolean;
   notificacionCliente?: {
     enviada: boolean;
-    fechaTurno: string;
-    horaTurno: string;
+    fechaTurno?: string;
+    horaTurno?: string;
+    fecha_turno?: string;
+    hora_turno?: string;
     medio: string;
     destinatario?: string;
     mensaje: string;
@@ -186,6 +210,8 @@ export interface Turno {
   // HU-13: Modificar turno
   historialEstados?: string[];
   historial_estados?: string[];
+  cambiosEstado?: CambioEstadoTurno[];
+  cambios_estado?: CambioEstadoTurno[];
   fechaModificacion?: string | null;
   horaModificacion?: string | null;
   // HU-15: Finalizar turno (registrar presentación del vehículo)
@@ -226,10 +252,23 @@ export interface ConfirmarTurnoResult {
   estado?: string;
   turno?: Turno;
   horasRestantes?: number;
+  fechaConfirmacion?: string | null;
+  horaConfirmacion?: string | null;
+  medioConfirmacion?: string | null;
+  cambiosEstado?: CambioEstadoTurno[];
+  cambios_estado?: CambioEstadoTurno[];
+  cambioEstadoCerrado?: CambioEstadoTurno;
+  cambio_estado_cerrado?: CambioEstadoTurno;
+  cambioEstadoActual?: CambioEstadoTurno;
+  cambio_estado_actual?: CambioEstadoTurno;
+  historialEstados?: string[];
+  historial_estados?: string[];
   notificacion?: {
     enviada: boolean;
-    fechaTurno: string;
-    horaTurno: string;
+    fechaTurno?: string;
+    horaTurno?: string;
+    fecha_turno?: string;
+    hora_turno?: string;
     medio: string;
     destinatario?: string;
     mensaje: string;
@@ -247,6 +286,7 @@ export interface CancelarTurnoPayload {
   hora?: string;
   motivo: string;
   canceladoPor?: string;
+  fechaHoraActual?: string;
 }
 
 export interface CancelarTurnoResult {
@@ -255,6 +295,10 @@ export interface CancelarTurnoResult {
   error?: string;
   estado?: string;
   motivoCancelacion?: string;
+  cambiosEstado?: CambioEstadoTurno[];
+  cambios_estado?: CambioEstadoTurno[];
+  historialEstados?: string[];
+  historial_estados?: string[];
   turno?: Turno;
   horarioLiberado?: {
     sucursal: string;
@@ -276,6 +320,7 @@ export interface ModificarTurnoPayload {
   nuevaFecha: string;
   nuevoHorario: string;
   nuevaSucursal?: string;
+  fechaHoraActual?: string;
 }
 
 export interface ModificarTurnoResult {
@@ -287,6 +332,9 @@ export interface ModificarTurnoResult {
   hora?: string;
   estado?: string;
   historialEstados?: string[];
+  historial_estados?: string[];
+  cambiosEstado?: CambioEstadoTurno[];
+  cambios_estado?: CambioEstadoTurno[];
   horarioAnteriorLiberado?: {
     sucursal: string;
     fecha: string;
@@ -313,6 +361,10 @@ export interface FinalizarTurnoResult {
   estado?: TurnoEstadoNombre;
   presupuestoHabilitado?: boolean;
   presupuesto_habilitado?: boolean;
+  cambiosEstado?: CambioEstadoTurno[];
+  cambios_estado?: CambioEstadoTurno[];
+  historialEstados?: string[];
+  historial_estados?: string[];
   turno?: Turno;
 }
 

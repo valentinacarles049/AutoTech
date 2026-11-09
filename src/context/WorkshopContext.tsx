@@ -9,6 +9,7 @@ import {
   RoleName, 
   Turno, 
   TurnoEstadoNombre,
+  CambioEstadoTurno,
   Sucursal, 
   DisponibilidadHorariaResult,
   ConfirmarTurnoPayload,
@@ -31,6 +32,14 @@ import {
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { getDefaultScreenForRole, isScreenAllowed } from '../utils/permissions';
 import { normalizePatente } from '../utils/patente';
+import {
+  buildCambioEstado,
+  inicializarCambioEstadoTurno,
+  ensureCambiosEstadoAndHistorial,
+  aplicarCambioEstadoTurno,
+  aplicarReprogramacionTurno,
+  formatCambioFechaHora
+} from '../utils/cambioEstadoTurno';
 
 export type ScreenId = 'dashboard' | 'comercial' | 'nuevo-cliente' | 'recepcion' | 'operativa' | 'supervision' | 'inventario';
 
@@ -279,6 +288,30 @@ export const defaultInitialTurnos: Turno[] = [
     motivo: 'Mantenimiento general',
     esEmergencia: false,
     estado: 'Confirmado',
+    historialEstados: ['Solicitado', 'Confirmado'],
+    historial_estados: ['Solicitado', 'Confirmado'],
+    cambiosEstado: [
+      buildCambioEstado({
+        id: 'cet-1001-1',
+        turnoId: 'turno-juan-perez-1',
+        estado: 'Solicitado',
+        fechaInicio: '01/11/2026',
+        horaInicio: '10:00',
+        fechaFin: '13/11/2026',
+        horaFin: '10:00',
+        observacion: 'Solicitud de turno registrada'
+      }),
+      buildCambioEstado({
+        id: 'cet-1001-2',
+        turnoId: 'turno-juan-perez-1',
+        estado: 'Confirmado',
+        fechaInicio: '13/11/2026',
+        horaInicio: '10:00',
+        fechaFin: null,
+        horaFin: null,
+        observacion: 'Confirmado por Mail'
+      })
+    ],
     fechaConfirmacion: '13/11/2026',
     horaConfirmacion: '10:00',
     medioConfirmacion: 'Mail',
@@ -302,6 +335,30 @@ export const defaultInitialTurnos: Turno[] = [
     motivo: 'Cambio de frenos',
     esEmergencia: false,
     estado: 'Confirmado',
+    historialEstados: ['Solicitado', 'Confirmado'],
+    historial_estados: ['Solicitado', 'Confirmado'],
+    cambiosEstado: [
+      buildCambioEstado({
+        id: 'cet-1002-1',
+        turnoId: 'turno-maria-gomez-1',
+        estado: 'Solicitado',
+        fechaInicio: '01/11/2026',
+        horaInicio: '10:05',
+        fechaFin: '13/11/2026',
+        horaFin: '11:00',
+        observacion: 'Solicitud de turno registrada'
+      }),
+      buildCambioEstado({
+        id: 'cet-1002-2',
+        turnoId: 'turno-maria-gomez-1',
+        estado: 'Confirmado',
+        fechaInicio: '13/11/2026',
+        horaInicio: '11:00',
+        fechaFin: null,
+        horaFin: null,
+        observacion: 'Confirmado por Mail'
+      })
+    ],
     fechaConfirmacion: '13/11/2026',
     horaConfirmacion: '11:00',
     medioConfirmacion: 'Mail',
@@ -325,6 +382,20 @@ export const defaultInitialTurnos: Turno[] = [
     motivo: 'Ruido en el motor',
     esEmergencia: false,
     estado: 'Solicitado',
+    historialEstados: ['Solicitado'],
+    historial_estados: ['Solicitado'],
+    cambiosEstado: [
+      buildCambioEstado({
+        id: 'cet-1003-1',
+        turnoId: 'turno-juan-perez-2',
+        estado: 'Solicitado',
+        fechaInicio: '01/11/2026',
+        horaInicio: '10:10',
+        fechaFin: null,
+        horaFin: null,
+        observacion: 'Solicitud de turno registrada'
+      })
+    ],
     fechaConfirmacion: null,
     horaConfirmacion: null,
     medioConfirmacion: null,
@@ -1686,6 +1757,82 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [sucursales] = useState<Sucursal[]>(defaultSucursales);
   const [nextTurnoNumber, setNextTurnoNumber] = useState<number>(1004);
 
+  const mapBackendTurnoToFrontend = (raw: any): Turno => {
+    const resolvedFecha = raw.fecha;
+    const resolvedHora = raw.hora;
+    const resolvedChanges: CambioEstadoTurno[] = raw.cambiosEstado || raw.cambios_estado || [];
+    const resolvedHist: string[] = raw.historialEstados || raw.historial_estados || [];
+    const { cambiosEstado, historialEstados } = ensureCambiosEstadoAndHistorial({
+      turnoId: String(raw.id),
+      estadoActual: raw.estado,
+      fechaFallback: resolvedFecha,
+      horaFallback: resolvedHora,
+      cambiosExistentes: resolvedChanges,
+      historialExistente: resolvedHist,
+      createdAt: raw.created_at || raw.fechaHoraPropuesta
+    });
+
+    return {
+      id: String(raw.id),
+      nroTurno: Number(raw.nroTurno ?? raw.nro_turno ?? 0),
+      vehiculoDominio: String(raw.vehiculoDominio || raw.vehiculo_dominio || raw.patente || ''),
+      patente: String(raw.patente || raw.vehiculoDominio || raw.vehiculo_dominio || ''),
+      clienteId: raw.clienteId || raw.cliente_id,
+      clienteNombre: raw.clienteNombre || raw.cliente_nombre || raw.cliente,
+      cliente: raw.cliente || raw.clienteNombre || raw.cliente_nombre,
+      clienteDocumento: raw.clienteDocumento || raw.cliente_documento,
+      sucursal: String(raw.sucursal || 'Centro'),
+      fecha: resolvedFecha,
+      hora: resolvedHora,
+      fechaHoraPropuesta: raw.fechaHoraPropuesta || `${resolvedFecha || ''} ${resolvedHora || ''}`.trim(),
+      motivoConsulta: String(raw.motivoConsulta || raw.motivo_consulta || raw.motivo || ''),
+      motivo: String(raw.motivo || raw.motivoConsulta || raw.motivo_consulta || ''),
+      esEmergencia: Boolean(raw.esEmergencia ?? raw.es_emergencia),
+      estado: raw.estado,
+      historialEstados,
+      historial_estados: historialEstados,
+      cambiosEstado,
+      cambios_estado: cambiosEstado,
+      fechaConfirmacion: raw.fechaConfirmacion ?? raw.fecha_confirmacion ?? null,
+      horaConfirmacion: raw.horaConfirmacion ?? raw.hora_confirmacion ?? null,
+      medioConfirmacion: raw.medioConfirmacion ?? raw.medio_confirmacion ?? null,
+      notificacionEnviada: Boolean(raw.notificacionEnviada ?? raw.notificacion_enviada),
+      notificacionCliente: raw.notificacionCliente ?? raw.notificacion_cliente ?? null,
+      motivoCancelacion: raw.motivoCancelacion ?? raw.motivo_cancelacion ?? null,
+      fechaCancelacion: raw.fechaCancelacion ?? raw.fecha_cancelacion ?? null,
+      horaCancelacion: raw.horaCancelacion ?? raw.hora_cancelacion ?? null,
+      canceladoPor: raw.canceladoPor ?? raw.cancelado_por ?? null,
+      fechaModificacion: raw.fechaModificacion ?? raw.fecha_modificacion ?? null,
+      horaModificacion: raw.horaModificacion ?? raw.hora_modificacion ?? null,
+      presupuestoHabilitado: Boolean(raw.presupuestoHabilitado ?? raw.presupuesto_habilitado),
+      vehiculoPresentado: Boolean(raw.vehiculoPresentado ?? raw.vehiculo_presentado),
+      fechaFinalizacion: raw.fechaFinalizacion ?? raw.fecha_finalizacion ?? null
+    };
+  };
+
+  useEffect(() => {
+    let active = true;
+    async function syncTurnosFromBackend() {
+      try {
+        const resp = await fetch('http://localhost:4000/api/turnos', {
+          credentials: 'include'
+        });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (active && Array.isArray(data.turnos) && data.turnos.length > 0) {
+          const mapped = data.turnos.map(mapBackendTurnoToFrontend);
+          setTurnos(mapped);
+          const maxNro = mapped.reduce((acc: number, t: Turno) => Math.max(acc, t.nroTurno || 0), 1003);
+          setNextTurnoNumber(prev => Math.max(prev, maxNro + 1));
+        }
+      } catch {
+        // Fallback offline a defaultInitialTurnos
+      }
+    }
+    syncTurnosFromBackend();
+    return () => { active = false; };
+  }, []);
+
   const normalizeContextDate = (dateStr: string): { iso: string; ddmmyyyy: string; parsedDate: Date | null } => {
     if (!dateStr) return { iso: '', ddmmyyyy: '', parsedDate: null };
     const trimmed = dateStr.trim();
@@ -1900,6 +2047,10 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     // Persistir en backend Express si está disponible
     let assignedNroTurno = nextTurnoNumber;
+    let backendTurnoId: string | undefined;
+    let backendCambios: CambioEstadoTurno[] | undefined;
+    let backendHistorial: string[] | undefined;
+
     try {
       const response = await fetch('http://localhost:4000/api/turnos', {
         method: 'POST',
@@ -1930,8 +2081,13 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             error: 'No se permiten turnos en fechas pasadas'
           };
         }
-      } else if (resData.nro_turno || resData.numeroTurno) {
-        assignedNroTurno = resData.nro_turno || resData.numeroTurno;
+      } else {
+        if (resData.nro_turno || resData.numeroTurno) {
+          assignedNroTurno = resData.nro_turno || resData.numeroTurno;
+        }
+        backendTurnoId = resData.turno?.id;
+        backendCambios = resData.cambios_estado || resData.cambiosEstado || resData.turno?.cambios_estado || resData.turno?.cambiosEstado;
+        backendHistorial = resData.historial_estados || resData.historialEstados || resData.turno?.historial_estados || resData.turno?.historialEstados;
       }
     } catch {
       // Fallback local en modo offline / tests
@@ -1942,20 +2098,39 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const cli = clients.find(c => c.nroDocumento.replace(/[\s-]/g, '') === valDni.replace(/[\s-]/g, ''));
     const cliNombre = cli ? cli.name : (data.clienteNombre || 'Cliente');
 
+    const nuevoId = backendTurnoId || `turno-${Date.now()}-${assignedNroTurno}`;
+    const { fecha: regFecha, hora: regHora } = formatCambioFechaHora(new Date());
+    const initEstado = inicializarCambioEstadoTurno({
+      turnoId: nuevoId,
+      estado: 'Solicitado',
+      fechaInicio: regFecha,
+      horaInicio: regHora,
+      observacion: 'Solicitud de turno registrada'
+    });
+    const cambiosFinales = backendCambios && backendCambios.length > 0 ? backendCambios : initEstado.cambiosEstado;
+    const historialFinal = backendHistorial && backendHistorial.length > 0 ? backendHistorial : initEstado.historialEstados;
+
     const nuevoTurno: Turno = {
-      id: `turno-${Date.now()}`,
+      id: nuevoId,
       nroTurno: assignedNroTurno,
       vehiculoDominio: valPatente,
+      patente: valPatente,
       clienteId: cli?.id,
       clienteNombre: cliNombre,
+      cliente: cliNombre,
       clienteDocumento: valDni,
       sucursal: valSucursal,
       fecha: norm.ddmmyyyy,
       hora: valHora,
       fechaHoraPropuesta: `${norm.iso}T${valHora}:00`,
       motivoConsulta: valMotivo,
+      motivo: valMotivo,
       esEmergencia: false,
-      estado: 'Solicitado' // Criterio 2: El turno nace en estado "Solicitado"
+      estado: 'Solicitado', // Criterio 2: El turno nace en estado "Solicitado"
+      historialEstados: historialFinal,
+      historial_estados: historialFinal,
+      cambiosEstado: cambiosFinales,
+      cambios_estado: cambiosFinales
     };
 
     // Criterio 4: El horario reservado deja de estar disponible
@@ -2008,16 +2183,28 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
 
       if (resData.success && resData.turno) {
+        const resCambios: CambioEstadoTurno[] =
+          resData.cambios_estado || resData.cambiosEstado || resData.turno.cambios_estado || resData.turno.cambiosEstado || [];
+        const resHistorial: string[] =
+          resData.historial_estados || resData.historialEstados || resData.turno.historial_estados || resData.turno.historialEstados || ['Solicitado', 'Confirmado'];
+        const resFechaConf = resData.fecha_confirmacion || resData.fechaConfirmacion || resData.turno.fecha_confirmacion;
+        const resHoraConf = resData.hora_confirmacion || resData.horaConfirmacion || resData.turno.hora_confirmacion;
+        const resMedioConf = resData.medio_confirmacion || resData.medioConfirmacion || resData.turno.medio_confirmacion;
+
         setTurnos(prev => prev.map(t => {
           if (t.id === resData.turno.id || t.nroTurno === resData.turno.nro_turno) {
             return {
               ...t,
               estado: 'Confirmado',
-              fechaConfirmacion: resData.fecha_confirmacion || resData.turno.fecha_confirmacion,
-              horaConfirmacion: resData.hora_confirmacion || resData.turno.hora_confirmacion,
-              medioConfirmacion: resData.medio_confirmacion || resData.turno.medio_confirmacion,
+              fechaConfirmacion: resFechaConf,
+              horaConfirmacion: resHoraConf,
+              medioConfirmacion: resMedioConf,
               notificacionEnviada: true,
-              notificacionCliente: resData.notificacion || resData.turno.notificacion_cliente
+              notificacionCliente: resData.notificacion || resData.turno.notificacion_cliente,
+              historialEstados: resHistorial,
+              historial_estados: resHistorial,
+              cambiosEstado: resCambios,
+              cambios_estado: resCambios
             };
           }
           return t;
@@ -2027,6 +2214,17 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           success: true,
           message: resData.message || 'Turno confirmado exitosamente',
           estado: 'Confirmado',
+          fechaConfirmacion: resFechaConf,
+          horaConfirmacion: resHoraConf,
+          medioConfirmacion: resMedioConf,
+          cambiosEstado: resCambios,
+          cambios_estado: resCambios,
+          cambioEstadoCerrado: resData.cambio_estado_cerrado || resData.cambioEstadoCerrado,
+          cambio_estado_cerrado: resData.cambio_estado_cerrado || resData.cambioEstadoCerrado,
+          cambioEstadoActual: resData.cambio_estado_actual || resData.cambioEstadoActual,
+          cambio_estado_actual: resData.cambio_estado_actual || resData.cambioEstadoActual,
+          historialEstados: resHistorial,
+          historial_estados: resHistorial,
           turno: resData.turno,
           notificacion: resData.notificacion
         };
@@ -2036,23 +2234,50 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
 
     // Buscar turno local
-    const targetTurno = turnos.find(t => {
-      if (data.turnoId && t.id === data.turnoId) return true;
-      if (data.nroTurno && t.nroTurno === data.nroTurno) return true;
-      if (data.vehiculoDominio && t.vehiculoDominio.toUpperCase() === data.vehiculoDominio.toUpperCase()) {
-        if (!data.turnoId && !data.nroTurno) return true;
-      }
-      if (data.clienteDni && t.clienteDocumento && t.clienteDocumento.replace(/[\s-]/g, '') === data.clienteDni.replace(/[\s-]/g, '')) {
-        if (!data.turnoId && !data.nroTurno && !data.vehiculoDominio) return true;
-      }
-      return false;
-    });
+    const targetPlateNorm = normalizePatente(data.vehiculoDominio || '');
+    let targetTurno: Turno | undefined;
+    if (data.turnoId) {
+      targetTurno = turnos.find(t => t.id === data.turnoId);
+    } else if (data.nroTurno) {
+      targetTurno = turnos.find(t => t.nroTurno === data.nroTurno);
+    } else {
+      const candidates = turnos.filter(t => {
+        if (targetPlateNorm && normalizePatente(t.vehiculoDominio) === targetPlateNorm) return true;
+        if (data.clienteDni && t.clienteDocumento && t.clienteDocumento.replace(/[\s-]/g, '') === data.clienteDni.replace(/[\s-]/g, '')) {
+          if (!targetPlateNorm) return true;
+        }
+        return false;
+      });
+      targetTurno =
+        candidates.find(t => {
+          const est = t.estado.trim().toLowerCase();
+          return est === 'solicitado' || est.includes('pendiente');
+        }) || candidates[0];
+    }
 
     if (!targetTurno) {
       return {
         success: false,
         error: 'Turno no encontrado',
         message: 'Turno no encontrado'
+      };
+    }
+
+    const estadoPrevNorm = targetTurno.estado.trim().toLowerCase();
+    if (estadoPrevNorm === 'confirmado') {
+      return {
+        success: false,
+        error: 'El turno ya se encuentra confirmado',
+        message: 'El turno ya se encuentra confirmado',
+        estado: targetTurno.estado
+      };
+    }
+    if (estadoPrevNorm !== 'solicitado' && !estadoPrevNorm.includes('pendiente')) {
+      return {
+        success: false,
+        error: 'Sólo se pueden confirmar turnos en estado Solicitado',
+        message: 'Sólo se pueden confirmar turnos en estado Solicitado',
+        estado: targetTurno.estado
       };
     }
 
@@ -2128,29 +2353,50 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       mensaje: `Estimado/a ${targetTurno.clienteNombre || 'Cliente'}, su turno para el vehículo ${targetTurno.vehiculoDominio} en la sucursal ${targetTurno.sucursal} ha sido confirmado para el día ${targetTurno.fecha} a las ${targetTurno.hora} hs.`
     };
 
-    let updatedTurno: Turno | undefined;
+    const transicionConf = aplicarCambioEstadoTurno({
+      turnoId: targetTurno.id,
+      estadoActual: targetTurno.estado,
+      nuevoEstado: 'Confirmado',
+      fechaCambio: fechaConf,
+      horaCambio: horaConf,
+      observacionNuevo: `Confirmado por ${medioNorm}`,
+      cambiosExistentes: targetTurno.cambiosEstado || targetTurno.cambios_estado,
+      historialExistente: targetTurno.historialEstados || targetTurno.historial_estados,
+      createdAt: targetTurno.fechaHoraPropuesta
+    });
 
-    setTurnos(prev => prev.map(t => {
-      if (t.id === targetTurno.id) {
-        updatedTurno = {
-          ...t,
-          estado: 'Confirmado',
-          fechaConfirmacion: fechaConf,
-          horaConfirmacion: horaConf,
-          medioConfirmacion: medioNorm,
-          notificacionEnviada: true,
-          notificacionCliente: notificacionObj
-        };
-        return updatedTurno;
-      }
-      return t;
-    }));
+    const updatedTurno: Turno = {
+      ...targetTurno,
+      estado: 'Confirmado',
+      fechaConfirmacion: fechaConf,
+      horaConfirmacion: horaConf,
+      medioConfirmacion: medioNorm,
+      notificacionEnviada: true,
+      notificacionCliente: notificacionObj,
+      historialEstados: transicionConf.historialEstados,
+      historial_estados: transicionConf.historialEstados,
+      cambiosEstado: transicionConf.cambiosEstado,
+      cambios_estado: transicionConf.cambiosEstado
+    };
+
+    setTurnos(prev => prev.map(t => (t.id === targetTurno.id ? updatedTurno : t)));
 
     return {
       success: true,
       message: 'Turno confirmado exitosamente',
       estado: 'Confirmado',
-      turno: updatedTurno || targetTurno,
+      fechaConfirmacion: fechaConf,
+      horaConfirmacion: horaConf,
+      medioConfirmacion: medioNorm,
+      cambiosEstado: transicionConf.cambiosEstado,
+      cambios_estado: transicionConf.cambiosEstado,
+      cambioEstadoCerrado: transicionConf.cambioCerrado,
+      cambio_estado_cerrado: transicionConf.cambioCerrado,
+      cambioEstadoActual: transicionConf.cambioNuevo,
+      cambio_estado_actual: transicionConf.cambioNuevo,
+      historialEstados: transicionConf.historialEstados,
+      historial_estados: transicionConf.historialEstados,
+      turno: updatedTurno,
       notificacion: notificacionObj
     };
   };
@@ -2181,7 +2427,8 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           fecha: data.fecha,
           hora: data.hora,
           motivo: rawMotivo,
-          cancelado_por: data.canceladoPor
+          cancelado_por: data.canceladoPor,
+          fecha_hora_actual: data.fechaHoraActual
         })
       });
 
@@ -2196,6 +2443,11 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
 
       if (resData.success && resData.turno) {
+        const resCambios: CambioEstadoTurno[] =
+          resData.cambios_estado || resData.cambiosEstado || resData.turno.cambios_estado || resData.turno.cambiosEstado || [];
+        const resHistorial: string[] =
+          resData.historial_estados || resData.historialEstados || resData.turno.historial_estados || resData.turno.historialEstados || ['Cancelado'];
+
         setTurnos(prev => prev.map(t => {
           if (t.id === resData.turno.id || t.nroTurno === resData.turno.nro_turno) {
             return {
@@ -2204,7 +2456,11 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               motivoCancelacion: rawMotivo,
               fechaCancelacion: resData.turno.fecha_cancelacion,
               horaCancelacion: resData.turno.hora_cancelacion,
-              canceladoPor: resData.turno.cancelado_por
+              canceladoPor: resData.turno.cancelado_por,
+              historialEstados: resHistorial,
+              historial_estados: resHistorial,
+              cambiosEstado: resCambios,
+              cambios_estado: resCambios
             };
           }
           return t;
@@ -2215,6 +2471,10 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           message: resData.message || 'Turno cancelado exitosamente',
           estado: 'Cancelado',
           motivoCancelacion: rawMotivo,
+          cambiosEstado: resCambios,
+          cambios_estado: resCambios,
+          historialEstados: resHistorial,
+          historial_estados: resHistorial,
           turno: resData.turno,
           horarioLiberado: resData.horario_liberado
         };
@@ -2259,28 +2519,43 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const fechaConf = `${regD}/${regM}/${regY}`;
     const horaConf = `${regH}:${regMin}`;
 
-    let updatedTurno: Turno | undefined;
-    setTurnos(prev => prev.map(t => {
-      if (t.id === target.id) {
-        updatedTurno = {
-          ...t,
-          estado: 'Cancelado',
-          motivoCancelacion: rawMotivo,
-          fechaCancelacion: fechaConf,
-          horaCancelacion: horaConf,
-          canceladoPor: data.canceladoPor || 'Responsable de Recepción'
-        };
-        return updatedTurno;
-      }
-      return t;
-    }));
+    const transicionCancel = aplicarCambioEstadoTurno({
+      turnoId: target.id,
+      estadoActual: target.estado,
+      nuevoEstado: 'Cancelado',
+      fechaCambio: fechaConf,
+      horaCambio: horaConf,
+      observacionNuevo: `Cancelado: ${rawMotivo}`,
+      cambiosExistentes: target.cambiosEstado || target.cambios_estado,
+      historialExistente: target.historialEstados || target.historial_estados,
+      createdAt: target.fechaHoraPropuesta
+    });
+
+    const updatedTurno: Turno = {
+      ...target,
+      estado: 'Cancelado',
+      motivoCancelacion: rawMotivo,
+      fechaCancelacion: fechaConf,
+      horaCancelacion: horaConf,
+      canceladoPor: data.canceladoPor || 'Responsable de Recepción',
+      historialEstados: transicionCancel.historialEstados,
+      historial_estados: transicionCancel.historialEstados,
+      cambiosEstado: transicionCancel.cambiosEstado,
+      cambios_estado: transicionCancel.cambiosEstado
+    };
+
+    setTurnos(prev => prev.map(t => (t.id === target.id ? updatedTurno : t)));
 
     return {
       success: true,
       message: 'Turno cancelado exitosamente',
       estado: 'Cancelado',
       motivoCancelacion: rawMotivo,
-      turno: updatedTurno || target,
+      cambiosEstado: transicionCancel.cambiosEstado,
+      cambios_estado: transicionCancel.cambiosEstado,
+      historialEstados: transicionCancel.historialEstados,
+      historial_estados: transicionCancel.historialEstados,
+      turno: updatedTurno,
       horarioLiberado: {
         sucursal: target.sucursal,
         fecha: target.fecha,
@@ -2319,7 +2594,8 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           hora_actual: data.horaActual,
           nueva_fecha: rawNuevaFecha,
           nuevo_horario: rawNuevoHorario,
-          nueva_sucursal: data.nuevaSucursal
+          nueva_sucursal: data.nuevaSucursal,
+          fecha_hora_actual: data.fechaHoraActual
         })
       });
 
@@ -2334,6 +2610,11 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
 
       if (resData.success && resData.turno) {
+        const resCambios: CambioEstadoTurno[] =
+          resData.cambios_estado || resData.cambiosEstado || resData.turno.cambios_estado || resData.turno.cambiosEstado || [];
+        const resHistorial: string[] =
+          resData.historial_estados || resData.historialEstados || resData.turno.historial_estados || resData.turno.historialEstados || [];
+
         setTurnos(prev => prev.map(t => {
           if (t.id === resData.turno.id || t.nroTurno === resData.turno.nro_turno) {
             return {
@@ -2342,7 +2623,10 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               hora: resData.hora || resData.turno.hora,
               sucursal: resData.turno.sucursal || t.sucursal,
               estado: resData.turno.estado || resData.estado || t.estado,
-              historialEstados: resData.historial_estados || resData.turno.historial_estados || t.historialEstados,
+              historialEstados: resHistorial.length > 0 ? resHistorial : t.historialEstados,
+              historial_estados: resHistorial.length > 0 ? resHistorial : t.historial_estados,
+              cambiosEstado: resCambios.length > 0 ? resCambios : t.cambiosEstado,
+              cambios_estado: resCambios.length > 0 ? resCambios : t.cambios_estado,
               fechaModificacion: resData.turno.fecha_modificacion,
               horaModificacion: resData.turno.hora_modificacion
             };
@@ -2357,7 +2641,10 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           fecha: resData.fecha,
           hora: resData.hora,
           estado: resData.estado,
-          historialEstados: resData.historial_estados,
+          historialEstados: resHistorial,
+          historial_estados: resHistorial,
+          cambiosEstado: resCambios,
+          cambios_estado: resCambios,
           horarioAnteriorLiberado: resData.horario_anterior_liberado
         };
       }
@@ -2458,48 +2745,55 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const fechaMod = `${regD}/${regM}/${regY}`;
     const horaMod = `${regH}:${regMin}`;
 
-    const prevHist = targetTurno.historialEstados || [targetTurno.estado];
-    let newHist: string[];
-    let finalEstado: TurnoEstadoNombre;
-
-    // Criterio 3: Si el turno estaba Confirmado pasa a "Reprogramado" hasta reasignarle fecha y horario, y vuelve a "Confirmado"
-    if (targetTurno.estado === 'Confirmado' || targetTurno.estado === 'Confirmado (24hs)') {
-      newHist = [...prevHist, 'Reprogramado', 'Confirmado'];
-      finalEstado = 'Confirmado';
-    } else {
-      newHist = [...prevHist, 'Reprogramado', 'Solicitado'];
-      finalEstado = 'Solicitado';
-    }
-
     const anteriorFecha = targetTurno.fecha;
     const anteriorHora = targetTurno.hora;
 
-    let updatedTurno: Turno | undefined;
-    setTurnos(prev => prev.map(t => {
-      if (t.id === targetTurno.id) {
-        updatedTurno = {
-          ...t,
-          fecha: normNewD.ddmmyyyy,
-          hora: normNewH,
-          sucursal: targetSucursal,
-          estado: finalEstado,
-          historialEstados: newHist,
-          fechaModificacion: fechaMod,
-          horaModificacion: horaMod
-        };
-        return updatedTurno;
-      }
-      return t;
-    }));
+    // Criterio 3: Si el turno estaba Confirmado pasa a "Reprogramado" hasta reasignarle fecha y horario, y vuelve a "Confirmado"
+    const finalEstado: TurnoEstadoNombre =
+      targetTurno.estado === 'Confirmado' || targetTurno.estado === 'Confirmado (24hs)'
+        ? 'Confirmado'
+        : 'Solicitado';
+
+    const transicionMod = aplicarReprogramacionTurno({
+      turnoId: targetTurno.id,
+      estadoPrevio: targetTurno.estado,
+      estadoFinal: finalEstado,
+      fechaCambio: fechaMod,
+      horaCambio: horaMod,
+      observacionReprogramado: `Reprogramado de ${anteriorFecha} ${anteriorHora} a ${normNewD.ddmmyyyy} ${normNewH}`,
+      observacionFinal: `Reasignado para el ${normNewD.ddmmyyyy} a las ${normNewH} (${targetSucursal})`,
+      cambiosExistentes: targetTurno.cambiosEstado || targetTurno.cambios_estado,
+      historialExistente: targetTurno.historialEstados || targetTurno.historial_estados,
+      createdAt: targetTurno.fechaHoraPropuesta
+    });
+
+    const updatedTurno: Turno = {
+      ...targetTurno,
+      fecha: normNewD.ddmmyyyy,
+      hora: normNewH,
+      sucursal: targetSucursal,
+      estado: finalEstado,
+      historialEstados: transicionMod.historialEstados,
+      historial_estados: transicionMod.historialEstados,
+      cambiosEstado: transicionMod.cambiosEstado,
+      cambios_estado: transicionMod.cambiosEstado,
+      fechaModificacion: fechaMod,
+      horaModificacion: horaMod
+    };
+
+    setTurnos(prev => prev.map(t => (t.id === targetTurno.id ? updatedTurno : t)));
 
     return {
       success: true,
       message: 'Turno modificado correctamente',
-      turno: updatedTurno || targetTurno,
+      turno: updatedTurno,
       fecha: normNewD.ddmmyyyy,
       hora: normNewH,
       estado: finalEstado,
-      historialEstados: newHist,
+      historialEstados: transicionMod.historialEstados,
+      historial_estados: transicionMod.historialEstados,
+      cambiosEstado: transicionMod.cambiosEstado,
+      cambios_estado: transicionMod.cambiosEstado,
       horarioAnteriorLiberado: {
         sucursal: targetTurno.sucursal,
         fecha: anteriorFecha,
@@ -2570,17 +2864,34 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
 
     // 5. Enriquecer campos del listado (Criterio 2: cliente, patente, motivo de consulta, fecha, hora y estado)
-    const mapped = resultado.map(t => ({
-      ...t,
-      cliente: t.clienteNombre || t.cliente || 'Cliente',
-      clienteNombre: t.clienteNombre || t.cliente || 'Cliente',
-      patente: t.vehiculoDominio || t.patente || '',
-      vehiculoDominio: t.vehiculoDominio || t.patente || '',
-      motivo: t.motivoConsulta || t.motivo || '',
-      motivoConsulta: t.motivoConsulta || t.motivo || '',
-      fecha: normalizeContextDate(t.fecha).ddmmyyyy || t.fecha,
-      hora: normalizeContextTime(t.hora) || t.hora
-    }));
+    const mapped = resultado.map(t => {
+      const resolvedFecha = normalizeContextDate(t.fecha).ddmmyyyy || t.fecha;
+      const resolvedHora = normalizeContextTime(t.hora) || t.hora;
+      const { cambiosEstado, historialEstados } = ensureCambiosEstadoAndHistorial({
+        turnoId: t.id,
+        estadoActual: t.estado,
+        fechaFallback: resolvedFecha,
+        horaFallback: resolvedHora,
+        cambiosExistentes: t.cambiosEstado || t.cambios_estado,
+        historialExistente: t.historialEstados || t.historial_estados,
+        createdAt: t.fechaHoraPropuesta
+      });
+      return {
+        ...t,
+        cliente: t.clienteNombre || t.cliente || 'Cliente',
+        clienteNombre: t.clienteNombre || t.cliente || 'Cliente',
+        patente: t.vehiculoDominio || t.patente || '',
+        vehiculoDominio: t.vehiculoDominio || t.patente || '',
+        motivo: t.motivoConsulta || t.motivo || '',
+        motivoConsulta: t.motivoConsulta || t.motivo || '',
+        fecha: resolvedFecha,
+        hora: resolvedHora,
+        historialEstados,
+        historial_estados: historialEstados,
+        cambiosEstado,
+        cambios_estado: cambiosEstado
+      };
+    });
 
     const mensaje = mapped.length === 0
       ? 'No se encontraron turnos para los filtros seleccionados'
@@ -2633,6 +2944,11 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
 
       if (resData.success && resData.turno) {
+        const resCambios: CambioEstadoTurno[] =
+          resData.cambios_estado || resData.cambiosEstado || resData.turno.cambios_estado || resData.turno.cambiosEstado || [];
+        const resHistorial: string[] =
+          resData.historial_estados || resData.historialEstados || resData.turno.historial_estados || resData.turno.historialEstados || [];
+
         setTurnos(prev => prev.map(t => {
           if (t.id === resData.turno.id || t.nroTurno === resData.turno.nro_turno) {
             return {
@@ -2640,7 +2956,11 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               estado: resData.estado || 'Finalizado',
               presupuestoHabilitado: Boolean(resData.presupuesto_habilitado ?? true),
               vehiculoPresentado: Boolean(resData.vehiculo_presentado ?? true),
-              fechaFinalizacion: normHoy.ddmmyyyy
+              fechaFinalizacion: normHoy.ddmmyyyy,
+              historialEstados: resHistorial.length > 0 ? resHistorial : t.historialEstados,
+              historial_estados: resHistorial.length > 0 ? resHistorial : t.historial_estados,
+              cambiosEstado: resCambios.length > 0 ? resCambios : t.cambiosEstado,
+              cambios_estado: resCambios.length > 0 ? resCambios : t.cambios_estado
             };
           }
           return t;
@@ -2652,6 +2972,10 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           estado: resData.estado || 'Finalizado',
           presupuestoHabilitado: Boolean(resData.presupuesto_habilitado ?? true),
           presupuesto_habilitado: Boolean(resData.presupuesto_habilitado ?? true),
+          cambiosEstado: resCambios,
+          cambios_estado: resCambios,
+          historialEstados: resHistorial,
+          historial_estados: resHistorial,
           turno: resData.turno
         };
       }
@@ -2709,13 +3033,30 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       };
     }
 
+    const finHora = normalizeContextTime(data.horaActual || formatCambioFechaHora(new Date()).hora);
+    const transicionFin = aplicarCambioEstadoTurno({
+      turnoId: targetTurno.id,
+      estadoActual: targetTurno.estado,
+      nuevoEstado: 'Finalizado',
+      fechaCambio: normHoy.ddmmyyyy,
+      horaCambio: finHora,
+      observacionNuevo: 'Presentación del vehículo registrada en recepción',
+      cambiosExistentes: targetTurno.cambiosEstado || targetTurno.cambios_estado,
+      historialExistente: targetTurno.historialEstados || targetTurno.historial_estados,
+      createdAt: targetTurno.fechaHoraPropuesta
+    });
+
     // Criterio 2 y 3: El turno pasa a "Finalizado" y queda habilitado el registro del presupuesto
-    let updatedTurno: Turno = {
+    const updatedTurno: Turno = {
       ...targetTurno,
       estado: 'Finalizado',
       presupuestoHabilitado: true,
       vehiculoPresentado: true,
-      fechaFinalizacion: normHoy.ddmmyyyy
+      fechaFinalizacion: normHoy.ddmmyyyy,
+      historialEstados: transicionFin.historialEstados,
+      historial_estados: transicionFin.historialEstados,
+      cambiosEstado: transicionFin.cambiosEstado,
+      cambios_estado: transicionFin.cambiosEstado
     };
 
     setTurnos(prev => prev.map(t => t.id === targetTurno!.id ? updatedTurno : t));
@@ -2726,6 +3067,10 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       estado: 'Finalizado',
       presupuestoHabilitado: true,
       presupuesto_habilitado: true,
+      cambiosEstado: transicionFin.cambiosEstado,
+      cambios_estado: transicionFin.cambiosEstado,
+      historialEstados: transicionFin.historialEstados,
+      historial_estados: transicionFin.historialEstados,
       turno: updatedTurno
     };
   };
@@ -2766,13 +3111,22 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
       if (resData.success && resData.turno) {
         const nuevoEstado = resData.turno.estado || resData.estado || 'Ausente';
+        const resCambios: CambioEstadoTurno[] =
+          resData.cambios_estado || resData.cambiosEstado || resData.turno.cambios_estado || resData.turno.cambiosEstado || [];
+        const resHistorial: string[] =
+          resData.historial_estados || resData.historialEstados || resData.turno.historial_estados || resData.turno.historialEstados || [];
+
         setTurnos(prev => prev.map(t => {
           if (t.id === resData.turno.id || t.nroTurno === resData.turno.nro_turno) {
             return {
               ...t,
               estado: nuevoEstado,
               presupuestoHabilitado: false,
-              vehiculoPresentado: false
+              vehiculoPresentado: false,
+              historialEstados: resHistorial.length > 0 ? resHistorial : t.historialEstados,
+              historial_estados: resHistorial.length > 0 ? resHistorial : t.historial_estados,
+              cambiosEstado: resCambios.length > 0 ? resCambios : t.cambiosEstado,
+              cambios_estado: resCambios.length > 0 ? resCambios : t.cambios_estado
             };
           }
           return t;
@@ -2784,6 +3138,10 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           estado: nuevoEstado,
           presupuestoHabilitado: false,
           presupuesto_habilitado: false,
+          cambiosEstado: resCambios,
+          cambios_estado: resCambios,
+          historialEstados: resHistorial,
+          historial_estados: resHistorial,
           turno: resData.turno
         };
       }
@@ -2840,11 +3198,27 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       };
     }
 
+    const transicionAus = aplicarCambioEstadoTurno({
+      turnoId: targetTurno.id,
+      estadoActual: targetTurno.estado,
+      nuevoEstado: 'Ausente',
+      fechaCambio: normHoy.ddmmyyyy,
+      horaCambio: refHora,
+      observacionNuevo: 'Vehículo no presentado en fecha y hora del turno',
+      cambiosExistentes: targetTurno.cambiosEstado || targetTurno.cambios_estado,
+      historialExistente: targetTurno.historialEstados || targetTurno.historial_estados,
+      createdAt: targetTurno.fechaHoraPropuesta
+    });
+
     const updatedTurno: Turno = {
       ...targetTurno,
       estado: 'Ausente',
       presupuestoHabilitado: false,
-      vehiculoPresentado: false
+      vehiculoPresentado: false,
+      historialEstados: transicionAus.historialEstados,
+      historial_estados: transicionAus.historialEstados,
+      cambiosEstado: transicionAus.cambiosEstado,
+      cambios_estado: transicionAus.cambiosEstado
     };
 
     setTurnos(prev => prev.map(t => t.id === targetTurno!.id ? updatedTurno : t));
@@ -2855,6 +3229,10 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       estado: 'Ausente',
       presupuestoHabilitado: false,
       presupuesto_habilitado: false,
+      cambiosEstado: transicionAus.cambiosEstado,
+      cambios_estado: transicionAus.cambiosEstado,
+      historialEstados: transicionAus.historialEstados,
+      historial_estados: transicionAus.historialEstados,
       turno: updatedTurno
     };
   };

@@ -30,6 +30,7 @@ import {
   configurarFidelizacionCliente
 } from './server/controllers/presupuestos.controller';
 import { isScreenAllowed } from './src/utils/permissions';
+import { buildCambioEstado } from './src/utils/cambioEstadoTurno';
 import bcrypt from 'bcryptjs';
 
 let passedTests = 0;
@@ -464,6 +465,30 @@ async function runTests() {
       estado: 'Confirmado',
       es_emergencia: false,
       created_at: '2026-11-01T10:00:00.000Z',
+      historial_estados: ['Solicitado', 'Confirmado'],
+      historialEstados: ['Solicitado', 'Confirmado'],
+      cambios_estado: [
+        buildCambioEstado({
+          id: 'cet-1001-1',
+          turnoId: 'turno-juan-perez-1',
+          estado: 'Solicitado',
+          fechaInicio: '01/11/2026',
+          horaInicio: '10:00',
+          fechaFin: '13/11/2026',
+          horaFin: '10:00',
+          observacion: 'Solicitud de turno registrada'
+        }),
+        buildCambioEstado({
+          id: 'cet-1001-2',
+          turnoId: 'turno-juan-perez-1',
+          estado: 'Confirmado',
+          fechaInicio: '13/11/2026',
+          horaInicio: '10:00',
+          fechaFin: null,
+          horaFin: null,
+          observacion: 'Confirmado por Mail'
+        })
+      ],
       fecha_confirmacion: '13/11/2026',
       hora_confirmacion: '10:00',
       medio_confirmacion: 'Mail',
@@ -484,6 +509,30 @@ async function runTests() {
       estado: 'Confirmado',
       es_emergencia: false,
       created_at: '2026-11-01T10:05:00.000Z',
+      historial_estados: ['Solicitado', 'Confirmado'],
+      historialEstados: ['Solicitado', 'Confirmado'],
+      cambios_estado: [
+        buildCambioEstado({
+          id: 'cet-1002-1',
+          turnoId: 'turno-maria-gomez-1',
+          estado: 'Solicitado',
+          fechaInicio: '01/11/2026',
+          horaInicio: '10:05',
+          fechaFin: '13/11/2026',
+          horaFin: '11:00',
+          observacion: 'Solicitud de turno registrada'
+        }),
+        buildCambioEstado({
+          id: 'cet-1002-2',
+          turnoId: 'turno-maria-gomez-1',
+          estado: 'Confirmado',
+          fechaInicio: '13/11/2026',
+          horaInicio: '11:00',
+          fechaFin: null,
+          horaFin: null,
+          observacion: 'Confirmado por Mail'
+        })
+      ],
       fecha_confirmacion: '13/11/2026',
       hora_confirmacion: '11:00',
       medio_confirmacion: 'Mail',
@@ -504,6 +553,20 @@ async function runTests() {
       estado: 'Solicitado',
       es_emergencia: false,
       created_at: '2026-11-01T10:10:00.000Z',
+      historial_estados: ['Solicitado'],
+      historialEstados: ['Solicitado'],
+      cambios_estado: [
+        buildCambioEstado({
+          id: 'cet-1003-1',
+          turnoId: 'turno-juan-perez-2',
+          estado: 'Solicitado',
+          fechaInicio: '01/11/2026',
+          horaInicio: '10:10',
+          fechaFin: null,
+          horaFin: null,
+          observacion: 'Solicitud de turno registrada'
+        })
+      ],
       fecha_confirmacion: null,
       hora_confirmacion: null,
       medio_confirmacion: null,

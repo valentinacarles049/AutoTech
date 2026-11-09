@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
+import { CambioEstadoTurno } from '../src/types/autotech';
+import { buildCambioEstado } from '../src/utils/cambioEstadoTurno';
 
 dotenv.config();
 
@@ -254,6 +256,8 @@ export const localSucursalesSeed: LocalSucursal[] = [
   { id: 3, nombre: 'Sur', direccion: 'Av. Vélez Sársfield 3100, Córdoba', horario_apertura: '08:00', horario_cierre: '17:00' }
 ];
 
+export type LocalCambioEstadoTurno = CambioEstadoTurno;
+
 export interface LocalTurno {
   id: string;
   nro_turno: number;
@@ -288,6 +292,9 @@ export interface LocalTurno {
   cancelado_por?: string | null;
   // HU-13: Modificar turno
   historial_estados?: string[];
+  historialEstados?: string[];
+  cambios_estado?: LocalCambioEstadoTurno[];
+  cambiosEstado?: LocalCambioEstadoTurno[];
   fecha_modificacion?: string | null;
   hora_modificacion?: string | null;
   // HU-15: Finalizar turno (registrar presentación del vehículo)
@@ -321,6 +328,30 @@ export const localTurnosSeed: LocalTurno[] = [
     estado: 'Confirmado',
     es_emergencia: false,
     created_at: '2026-11-01T10:00:00.000Z',
+    historial_estados: ['Solicitado', 'Confirmado'],
+    historialEstados: ['Solicitado', 'Confirmado'],
+    cambios_estado: [
+      buildCambioEstado({
+        id: 'cet-1001-1',
+        turnoId: 'turno-juan-perez-1',
+        estado: 'Solicitado',
+        fechaInicio: '01/11/2026',
+        horaInicio: '10:00',
+        fechaFin: '13/11/2026',
+        horaFin: '10:00',
+        observacion: 'Solicitud de turno registrada'
+      }),
+      buildCambioEstado({
+        id: 'cet-1001-2',
+        turnoId: 'turno-juan-perez-1',
+        estado: 'Confirmado',
+        fechaInicio: '13/11/2026',
+        horaInicio: '10:00',
+        fechaFin: null,
+        horaFin: null,
+        observacion: 'Confirmado por Mail'
+      })
+    ],
     fecha_confirmacion: '13/11/2026',
     hora_confirmacion: '10:00',
     medio_confirmacion: 'Mail',
@@ -341,6 +372,30 @@ export const localTurnosSeed: LocalTurno[] = [
     estado: 'Confirmado',
     es_emergencia: false,
     created_at: '2026-11-01T10:05:00.000Z',
+    historial_estados: ['Solicitado', 'Confirmado'],
+    historialEstados: ['Solicitado', 'Confirmado'],
+    cambios_estado: [
+      buildCambioEstado({
+        id: 'cet-1002-1',
+        turnoId: 'turno-maria-gomez-1',
+        estado: 'Solicitado',
+        fechaInicio: '01/11/2026',
+        horaInicio: '10:05',
+        fechaFin: '13/11/2026',
+        horaFin: '11:00',
+        observacion: 'Solicitud de turno registrada'
+      }),
+      buildCambioEstado({
+        id: 'cet-1002-2',
+        turnoId: 'turno-maria-gomez-1',
+        estado: 'Confirmado',
+        fechaInicio: '13/11/2026',
+        horaInicio: '11:00',
+        fechaFin: null,
+        horaFin: null,
+        observacion: 'Confirmado por Mail'
+      })
+    ],
     fecha_confirmacion: '13/11/2026',
     hora_confirmacion: '11:00',
     medio_confirmacion: 'Mail',
@@ -361,6 +416,20 @@ export const localTurnosSeed: LocalTurno[] = [
     estado: 'Solicitado',
     es_emergencia: false,
     created_at: '2026-11-01T10:10:00.000Z',
+    historial_estados: ['Solicitado'],
+    historialEstados: ['Solicitado'],
+    cambios_estado: [
+      buildCambioEstado({
+        id: 'cet-1003-1',
+        turnoId: 'turno-juan-perez-2',
+        estado: 'Solicitado',
+        fechaInicio: '01/11/2026',
+        horaInicio: '10:10',
+        fechaFin: null,
+        horaFin: null,
+        observacion: 'Solicitud de turno registrada'
+      })
+    ],
     fecha_confirmacion: null,
     hora_confirmacion: null,
     medio_confirmacion: null,

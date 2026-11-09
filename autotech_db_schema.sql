@@ -26,7 +26,8 @@ INSERT INTO estado_turnos (descripcion_estado) VALUES
 ('En Taller'),
 ('Cancelado'),
 ('Finalizado'),
-('Ausente')
+('Ausente'),
+('Reprogramado')
 ON CONFLICT (descripcion_estado) DO NOTHING;
 
 -- 1.1 TABLA: SUCURSALES (HU-09: Registro de solicitud de turno)
@@ -184,6 +185,33 @@ BEGIN
   END IF;
 END $$;
 
+
+-- 4.1 TABLA: CAMBIO DE ESTADO DE TURNOS (UML MODP: CambioEstadoTurno - HU-09, HU-11, HU-12, HU-13, HU-15)
+-- Relación: 1 Turno tiene 1..* CambioEstadoTurno; cada transición cierra el estado vigente (fecha_fin, hora_fin)
+-- y registra el nuevo estado con fecha_inicio, hora_inicio (fecha_fin / hora_fin NULL mientras esté vigente).
+CREATE TABLE IF NOT EXISTS cambio_estado_turnos (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  turno_id UUID NOT NULL REFERENCES turnos(id) ON DELETE CASCADE,
+  estado_turno_id INT REFERENCES estado_turnos(id),
+  estado VARCHAR(50) NOT NULL,
+  fecha_inicio VARCHAR(20) NOT NULL,
+  hora_inicio VARCHAR(10) NOT NULL,
+  fecha_fin VARCHAR(20) DEFAULT NULL,
+  hora_fin VARCHAR(10) DEFAULT NULL,
+  observacion TEXT DEFAULT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_cambio_estado_turnos_turno_id ON cambio_estado_turnos (turno_id);
+CREATE INDEX IF NOT EXISTS idx_cambio_estado_turnos_vigente ON cambio_estado_turnos (turno_id) WHERE fecha_fin IS NULL;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='turnos' AND column_name='cambios_estado') THEN
+    ALTER TABLE turnos ADD COLUMN cambios_estado JSONB DEFAULT '[]'::jsonb;
+  END IF;
+  ALTER TABLE turnos ALTER COLUMN historial_estados SET DEFAULT ARRAY[]::TEXT[];
+END $$;
 
 -- 5. TABLA: PRESUPUESTOS Y DETALLE_PRESUPUESTOS (UML MODP: Presupuesto & DetallePresupuesto - HU-19)
 -- Relación: 1 Turno tiene 0..1 Presupuesto; 1 Presupuesto tiene 1..* DetallePresupuesto
@@ -714,6 +742,108 @@ GRANT EXECUTE ON FUNCTION consultar_turnos(VARCHAR, DATE, DATE, VARCHAR, VARCHAR
 
 
 -- ============================================================
+-- PROCEDIMIENTO ALMACENADO: CONFIRMAR TURNO Y CAMBIO DE ESTADO (HU-11 + MODP)
+-- Cierra el CambioEstadoTurno 'Solicitado' con fecha_fin/hora_fin y crea uno 'Confirmado'
+-- con fecha_inicio/hora_inicio (fecha_fin y hora_fin en NULL)
+-- ============================================================
+CREATE OR REPLACE FUNCTION confirmar_turno(
+  p_turno_id UUID,
+  p_medio VARCHAR DEFAULT 'Mail',
+  p_fecha_hora_actual TIMESTAMP DEFAULT NOW()
+)
+RETURNS TABLE (
+  id UUID,
+  nro_turno INT,
+  estado VARCHAR,
+  fecha_confirmacion VARCHAR,
+  hora_confirmacion VARCHAR,
+  medio_confirmacion VARCHAR,
+  historial_estados TEXT[],
+  mensaje VARCHAR
+)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_turno RECORD;
+  v_estado_confirmado_id INT;
+  v_diff_hours NUMERIC;
+  v_reg_fecha VARCHAR;
+  v_reg_hora VARCHAR;
+  v_new_hist TEXT[];
+  v_new_cambio JSONB;
+BEGIN
+  SELECT t.*, et.descripcion_estado AS estado_nombre
+  INTO v_turno
+  FROM turnos t
+  JOIN estado_turnos et ON t.estado_turno_id = et.id
+  WHERE t.id = p_turno_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Turno no encontrado';
+  END IF;
+
+  IF v_turno.estado_nombre = 'Confirmado' THEN
+    RAISE EXCEPTION 'El turno ya se encuentra confirmado';
+  END IF;
+
+  IF v_turno.estado_nombre NOT IN ('Solicitado', 'Pendiente de Confirmación (24hs)') THEN
+    RAISE EXCEPTION 'Sólo se pueden confirmar turnos en estado Solicitado';
+  END IF;
+
+  v_diff_hours := EXTRACT(EPOCH FROM (v_turno.fecha_hora_propuesta - p_fecha_hora_actual)) / 3600.0;
+  IF v_diff_hours < 24 THEN
+    RAISE EXCEPTION 'El plazo de confirmación venció';
+  END IF;
+
+  SELECT et.id INTO v_estado_confirmado_id FROM estado_turnos et WHERE et.descripcion_estado = 'Confirmado';
+  v_reg_fecha := TO_CHAR(p_fecha_hora_actual, 'DD/MM/YYYY');
+  v_reg_hora := TO_CHAR(p_fecha_hora_actual, 'HH24:MI');
+
+  -- Cerrar CambioEstadoTurno vigente ('Solicitado')
+  UPDATE cambio_estado_turnos
+  SET fecha_fin = v_reg_fecha,
+      hora_fin = v_reg_hora
+  WHERE turno_id = v_turno.id
+    AND fecha_fin IS NULL;
+
+  -- Crear nuevo CambioEstadoTurno ('Confirmado')
+  INSERT INTO cambio_estado_turnos (turno_id, estado_turno_id, estado, fecha_inicio, hora_inicio, fecha_fin, hora_fin, observacion)
+  VALUES (v_turno.id, v_estado_confirmado_id, 'Confirmado', v_reg_fecha, v_reg_hora, NULL, NULL, 'Confirmado por ' || COALESCE(p_medio, 'Mail'));
+
+  v_new_hist := CASE
+    WHEN v_turno.historial_estados IS NULL OR array_length(v_turno.historial_estados, 1) IS NULL THEN ARRAY['Solicitado', 'Confirmado']
+    ELSE array_append(v_turno.historial_estados, 'Confirmado')
+  END;
+
+  v_new_cambio := jsonb_build_object(
+    'estado', 'Confirmado',
+    'estado_turno_id', v_estado_confirmado_id,
+    'fecha_inicio', v_reg_fecha,
+    'hora_inicio', v_reg_hora,
+    'fecha_fin', NULL,
+    'hora_fin', NULL,
+    'observacion', 'Confirmado por ' || COALESCE(p_medio, 'Mail')
+  );
+
+  UPDATE turnos
+  SET estado_turno_id = v_estado_confirmado_id,
+      fecha_confirmacion = v_reg_fecha,
+      hora_confirmacion = v_reg_hora,
+      medio_confirmacion = COALESCE(p_medio, 'Mail'),
+      notificacion_enviada = TRUE,
+      historial_estados = v_new_hist,
+      cambios_estado = COALESCE(cambios_estado, '[]'::jsonb) || v_new_cambio
+  WHERE turnos.id = v_turno.id;
+
+  RETURN QUERY
+  SELECT v_turno.id, v_turno.nro_turno, 'Confirmado'::VARCHAR, v_reg_fecha, v_reg_hora, COALESCE(p_medio, 'Mail')::VARCHAR, v_new_hist, 'Turno confirmado exitosamente'::VARCHAR;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION confirmar_turno(UUID, VARCHAR, TIMESTAMP) TO anon, authenticated, postgres;
+
+
+-- ============================================================
 -- PROCEDIMIENTO ALMACENADO: FINALIZAR TURNO (HU-15)
 -- Criterios de Aceptación:
 -- 1. Sólo se finalizan turnos Confirmados del día
@@ -756,10 +886,25 @@ BEGIN
   -- Si el vehículo no se presentó al llegar la fecha/hora del turno
   IF NOT p_vehiculo_presentado THEN
     SELECT id INTO v_estado_ausente_id FROM estado_turnos WHERE descripcion_estado = 'Ausente';
+    UPDATE cambio_estado_turnos
+    SET fecha_fin = TO_CHAR(p_fecha_actual, 'DD/MM/YYYY'),
+        hora_fin = TO_CHAR(NOW(), 'HH24:MI')
+    WHERE turno_id = v_turno.id AND fecha_fin IS NULL;
+    INSERT INTO cambio_estado_turnos (turno_id, estado_turno_id, estado, fecha_inicio, hora_inicio, fecha_fin, hora_fin, observacion)
+    VALUES (v_turno.id, v_estado_ausente_id, 'Ausente', TO_CHAR(p_fecha_actual, 'DD/MM/YYYY'), TO_CHAR(NOW(), 'HH24:MI'), NULL, NULL, 'Vehículo no presentado en fecha y hora del turno');
     UPDATE turnos
     SET estado_turno_id = v_estado_ausente_id,
         presupuesto_habilitado = FALSE,
-        vehiculo_presentado = FALSE
+        vehiculo_presentado = FALSE,
+        historial_estados = COALESCE(historial_estados, ARRAY[v_turno.estado]::TEXT[]) || 'Ausente',
+        cambios_estado = COALESCE(cambios_estado, '[]'::jsonb) || jsonb_build_object(
+          'estado', 'Ausente',
+          'estado_turno_id', v_estado_ausente_id,
+          'fecha_inicio', TO_CHAR(p_fecha_actual, 'DD/MM/YYYY'),
+          'hora_inicio', TO_CHAR(NOW(), 'HH24:MI'),
+          'fecha_fin', NULL,
+          'hora_fin', NULL
+        )
     WHERE turnos.id = v_turno.id;
 
     RETURN QUERY
@@ -775,11 +920,26 @@ BEGIN
   SELECT id INTO v_estado_finalizado_id FROM estado_turnos WHERE descripcion_estado = 'Finalizado';
 
   -- Criterio 2 y 3: El turno pasa a "Finalizado" y queda habilitado el registro del presupuesto
+  UPDATE cambio_estado_turnos
+  SET fecha_fin = TO_CHAR(p_fecha_actual, 'DD/MM/YYYY'),
+      hora_fin = TO_CHAR(NOW(), 'HH24:MI')
+  WHERE turno_id = v_turno.id AND fecha_fin IS NULL;
+  INSERT INTO cambio_estado_turnos (turno_id, estado_turno_id, estado, fecha_inicio, hora_inicio, fecha_fin, hora_fin, observacion)
+  VALUES (v_turno.id, v_estado_finalizado_id, 'Finalizado', TO_CHAR(p_fecha_actual, 'DD/MM/YYYY'), TO_CHAR(NOW(), 'HH24:MI'), NULL, NULL, 'Presentación del vehículo registrada en recepción');
   UPDATE turnos
   SET estado_turno_id = v_estado_finalizado_id,
       presupuesto_habilitado = TRUE,
       vehiculo_presentado = TRUE,
-      fecha_finalizacion = TO_CHAR(p_fecha_actual, 'DD/MM/YYYY')
+      fecha_finalizacion = TO_CHAR(p_fecha_actual, 'DD/MM/YYYY'),
+      historial_estados = COALESCE(historial_estados, ARRAY[v_turno.estado]::TEXT[]) || 'Finalizado',
+      cambios_estado = COALESCE(cambios_estado, '[]'::jsonb) || jsonb_build_object(
+        'estado', 'Finalizado',
+        'estado_turno_id', v_estado_finalizado_id,
+        'fecha_inicio', TO_CHAR(p_fecha_actual, 'DD/MM/YYYY'),
+        'hora_inicio', TO_CHAR(NOW(), 'HH24:MI'),
+        'fecha_fin', NULL,
+        'hora_fin', NULL
+      )
   WHERE turnos.id = v_turno.id;
 
   RETURN QUERY
@@ -959,6 +1119,14 @@ CREATE POLICY "Inserción pública turnos" ON turnos FOR INSERT WITH CHECK (true
 DROP POLICY IF EXISTS "Actualización turnos" ON turnos;
 CREATE POLICY "Actualización turnos" ON turnos FOR UPDATE USING (true);
 
+ALTER TABLE cambio_estado_turnos ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Lectura pública cambio_estado_turnos" ON cambio_estado_turnos;
+CREATE POLICY "Lectura pública cambio_estado_turnos" ON cambio_estado_turnos FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Inserción pública cambio_estado_turnos" ON cambio_estado_turnos;
+CREATE POLICY "Inserción pública cambio_estado_turnos" ON cambio_estado_turnos FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Actualización cambio_estado_turnos" ON cambio_estado_turnos;
+CREATE POLICY "Actualización cambio_estado_turnos" ON cambio_estado_turnos FOR UPDATE USING (true);
+
 DROP POLICY IF EXISTS "Lectura pública estado_turnos" ON estado_turnos;
 CREATE POLICY "Lectura pública estado_turnos" ON estado_turnos FOR SELECT USING (true);
 DROP POLICY IF EXISTS "Lectura pública presupuestos" ON presupuestos;
@@ -1027,10 +1195,31 @@ BEGIN
     ('AB123CD', cli_juan_id, 'Toyota', 'Corolla 2.0 SEG', 2022, 45000),
     ('AC456EF', cli_maria_id, 'Peugeot', '208 Feline 1.6', 2023, 22000);
 
-    -- Insertar Turno Inicial
-    INSERT INTO turnos (vehiculo_dominio, estado_turno_id, fecha_hora_propuesta, motivo_consulta, es_emergencia)
-    VALUES ('AF-123-ZZ', 1, NOW() + INTERVAL '1 day', 'Service programado 60.000km y pastillas de freno', FALSE)
+    -- Insertar Turno Inicial con historial de estados y CambioEstadoTurno 'Solicitado'
+    INSERT INTO turnos (vehiculo_dominio, estado_turno_id, fecha_hora_propuesta, motivo_consulta, es_emergencia, historial_estados, cambios_estado)
+    VALUES (
+      'AF-123-ZZ',
+      1,
+      NOW() + INTERVAL '1 day',
+      'Service programado 60.000km y pastillas de freno',
+      FALSE,
+      ARRAY['Solicitado'],
+      jsonb_build_array(
+        jsonb_build_object(
+          'estado', 'Solicitado',
+          'estado_turno_id', 1,
+          'fecha_inicio', TO_CHAR(NOW(), 'DD/MM/YYYY'),
+          'hora_inicio', TO_CHAR(NOW(), 'HH24:MI'),
+          'fecha_fin', NULL,
+          'hora_fin', NULL,
+          'observacion', 'Solicitud de turno registrada'
+        )
+      )
+    )
     RETURNING id INTO turno1_id;
+
+    INSERT INTO cambio_estado_turnos (turno_id, estado_turno_id, estado, fecha_inicio, hora_inicio, fecha_fin, hora_fin, observacion)
+    VALUES (turno1_id, 1, 'Solicitado', TO_CHAR(NOW(), 'DD/MM/YYYY'), TO_CHAR(NOW(), 'HH24:MI'), NULL, NULL, 'Solicitud de turno registrada');
 
     -- Insertar Presupuesto Inicial
     INSERT INTO presupuestos (nro_presupuesto, turno_id, monto_estimado, validez_dias)

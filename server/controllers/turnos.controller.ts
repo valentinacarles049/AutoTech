@@ -10,6 +10,81 @@ import {
   localClientsSeed,
   localVehiclesSeed
 } from '../db';
+import { CambioEstadoTurno } from '../../src/types/autotech';
+import { normalizePatente } from '../../src/utils/patente';
+import {
+  inicializarCambioEstadoTurno,
+  ensureCambiosEstadoAndHistorial,
+  aplicarCambioEstadoTurno,
+  aplicarReprogramacionTurno,
+  getEstadoTurnoId
+} from '../../src/utils/cambioEstadoTurno';
+
+/**
+ * Sincroniza la tabla relacional cambio_estado_turnos en Supabase (si está configurada).
+ * Falla de forma silenciosa ante modo offline/local sin interrumpir la operación principal.
+ */
+const syncCambioEstadoSupabase = async (
+  turno: LocalTurno,
+  transition?: {
+    cambioCerrado?: CambioEstadoTurno;
+    cambiosIntermedios?: CambioEstadoTurno[];
+    cambioNuevo?: CambioEstadoTurno;
+  }
+): Promise<void> => {
+  if (!isSupabaseConnected || !supabase) return;
+  try {
+    const { data: dbTurno } = await supabase
+      .from('turnos')
+      .select('id')
+      .eq('nro_turno', turno.nro_turno)
+      .maybeSingle();
+
+    const dbTurnoId = dbTurno?.id;
+    if (!dbTurnoId) return;
+
+    if (transition?.cambioCerrado) {
+      await supabase
+        .from('cambio_estado_turnos')
+        .update({
+          fecha_fin: transition.cambioCerrado.fecha_fin,
+          hora_fin: transition.cambioCerrado.hora_fin
+        })
+        .eq('turno_id', dbTurnoId)
+        .is('fecha_fin', null);
+    }
+
+    if (transition?.cambiosIntermedios && transition.cambiosIntermedios.length > 0) {
+      await supabase.from('cambio_estado_turnos').insert(
+        transition.cambiosIntermedios.map(c => ({
+          turno_id: dbTurnoId,
+          estado_turno_id: c.estado_turno_id ?? getEstadoTurnoId(String(c.estado)),
+          estado: c.estado,
+          fecha_inicio: c.fecha_inicio,
+          hora_inicio: c.hora_inicio,
+          fecha_fin: c.fecha_fin,
+          hora_fin: c.hora_fin,
+          observacion: c.observacion ?? null
+        }))
+      );
+    }
+
+    if (transition?.cambioNuevo) {
+      await supabase.from('cambio_estado_turnos').insert({
+        turno_id: dbTurnoId,
+        estado_turno_id: transition.cambioNuevo.estado_turno_id ?? getEstadoTurnoId(String(transition.cambioNuevo.estado)),
+        estado: transition.cambioNuevo.estado,
+        fecha_inicio: transition.cambioNuevo.fecha_inicio,
+        hora_inicio: transition.cambioNuevo.hora_inicio,
+        fecha_fin: null,
+        hora_fin: null,
+        observacion: transition.cambioNuevo.observacion ?? null
+      });
+    }
+  } catch (dbErr) {
+    console.warn('[Backend Turnos] Error sincronizando cambio_estado_turnos en Supabase:', dbErr);
+  }
+};
 
 /**
  * Normaliza fechas entre formato DD/MM/YYYY y YYYY-MM-DD
@@ -273,7 +348,9 @@ export const registrarTurno = async (req: Request, res: Response): Promise<void>
       sucursal,
       fecha,
       horario,
-      hora
+      hora,
+      fecha_hora_actual,
+      fechaHoraActual
     } = req.body;
 
     const valDni = String(cliente_dni || clienteDni || cliente_documento || '').trim();
@@ -350,11 +427,27 @@ export const registrarTurno = async (req: Request, res: Response): Promise<void>
     );
     const clientName = client ? `${client.nombre} ${client.apellido}` : (cliente_nombre || 'Cliente');
 
-    // Criterio 2: El turno nace en estado "Solicitado"
+    // Criterio 2: El turno nace en estado "Solicitado" con su CambioEstadoTurno inicial abierto
     // Y el sistema registra el turno con un número de turno
+    let creationDate = new Date();
+    if (fecha_hora_actual || fechaHoraActual) {
+      const parsedCreation = parseFullDateTime(String(fecha_hora_actual || fechaHoraActual));
+      if (parsedCreation) creationDate = parsedCreation;
+    }
+    const { fecha: regFecha, hora: regHora } = formatDateTimeDisplay(creationDate);
+
     const nroTurno = getNextTurnoNumber();
+    const nuevoId = `turno-${Date.now()}-${nroTurno}`;
+    const { cambiosEstado, historialEstados } = inicializarCambioEstadoTurno({
+      turnoId: nuevoId,
+      estado: 'Solicitado',
+      fechaInicio: regFecha,
+      horaInicio: regHora,
+      observacion: 'Solicitud de turno registrada'
+    });
+
     const nuevoTurno: LocalTurno = {
-      id: `turno-${Date.now()}`,
+      id: nuevoId,
       nro_turno: nroTurno,
       vehiculo_dominio: valPatente,
       cliente_id: client?.id || cliente_id || clienteId,
@@ -366,7 +459,11 @@ export const registrarTurno = async (req: Request, res: Response): Promise<void>
       motivo_consulta: valMotivo,
       estado: 'Solicitado',
       es_emergencia: false,
-      created_at: new Date().toISOString()
+      created_at: creationDate.toISOString(),
+      historial_estados: historialEstados,
+      historialEstados,
+      cambios_estado: cambiosEstado,
+      cambiosEstado
     };
 
     localTurnosSeed.push(nuevoTurno);
@@ -381,10 +478,13 @@ export const registrarTurno = async (req: Request, res: Response): Promise<void>
           sucursal: nuevoTurno.sucursal,
           fecha: norm.iso,
           hora: valHora,
-          estado_turno_id: 1, // 'Solicitado'
+          estado_turno_id: getEstadoTurnoId('Solicitado'),
           motivo_consulta: valMotivo,
-          fecha_hora_propuesta: `${norm.iso}T${valHora}:00`
+          fecha_hora_propuesta: `${norm.iso}T${valHora}:00`,
+          historial_estados: historialEstados,
+          cambios_estado: cambiosEstado
         });
+        await syncCambioEstadoSupabase(nuevoTurno, { cambioNuevo: cambiosEstado[0] });
       } catch (dbErr) {
         console.warn('[Backend Turnos] Error guardando en Supabase, persistido en memoria local:', dbErr);
       }
@@ -396,6 +496,12 @@ export const registrarTurno = async (req: Request, res: Response): Promise<void>
       numeroTurno: nroTurno,
       nro_turno: nroTurno,
       estado: 'Solicitado',
+      historial_estados: historialEstados,
+      historialEstados,
+      cambios_estado: cambiosEstado,
+      cambiosEstado,
+      cambio_estado_actual: cambiosEstado[0],
+      cambioEstadoActual: cambiosEstado[0],
       turno: nuevoTurno
     });
   } catch (err: any) {
@@ -527,9 +633,22 @@ export const filtrarYOrdenarTurnos = (
     const resolvedCliente = t.cliente_nombre || (clientObj ? `${clientObj.nombre} ${clientObj.apellido}` : 'Cliente');
     const resolvedFecha = normalizeDate(t.fecha).ddmmyyyy || t.fecha;
     const resolvedHora = normalizeTime(t.hora) || t.hora;
+    const { cambiosEstado, historialEstados } = ensureCambiosEstadoAndHistorial({
+      turnoId: t.id,
+      estadoActual: t.estado,
+      fechaFallback: resolvedFecha,
+      horaFallback: resolvedHora,
+      cambiosExistentes: t.cambios_estado || t.cambiosEstado,
+      historialExistente: t.historial_estados || t.historialEstados,
+      createdAt: t.created_at
+    });
 
+    const resolvedDateIso = normalizeDate(resolvedFecha).iso || '';
     return {
       ...t,
+      nroTurno: t.nro_turno,
+      clienteId: t.cliente_id,
+      clienteDocumento: t.cliente_documento,
       cliente: resolvedCliente,
       cliente_nombre: resolvedCliente,
       clienteNombre: resolvedCliente,
@@ -542,7 +661,27 @@ export const filtrarYOrdenarTurnos = (
       sucursal: t.sucursal,
       fecha: resolvedFecha,
       hora: resolvedHora,
-      estado: t.estado
+      fechaHoraPropuesta: resolvedDateIso && resolvedHora ? `${resolvedDateIso}T${resolvedHora}:00` : undefined,
+      esEmergencia: Boolean(t.es_emergencia),
+      estado: t.estado,
+      fechaConfirmacion: t.fecha_confirmacion ?? null,
+      horaConfirmacion: t.hora_confirmacion ?? null,
+      medioConfirmacion: t.medio_confirmacion ?? null,
+      notificacionEnviada: Boolean(t.notificacion_enviada),
+      notificacionCliente: t.notificacion_cliente ?? null,
+      motivoCancelacion: t.motivo_cancelacion ?? null,
+      fechaCancelacion: t.fecha_cancelacion ?? null,
+      horaCancelacion: t.hora_cancelacion ?? null,
+      canceladoPor: t.cancelado_por ?? null,
+      fechaModificacion: t.fecha_modificacion ?? null,
+      horaModificacion: t.hora_modificacion ?? null,
+      presupuestoHabilitado: Boolean(t.presupuesto_habilitado),
+      vehiculoPresentado: Boolean(t.vehiculo_presentado),
+      fechaFinalizacion: t.fecha_finalizacion ?? null,
+      historial_estados: historialEstados,
+      historialEstados,
+      cambios_estado: cambiosEstado,
+      cambiosEstado
     };
   });
 
@@ -624,29 +763,64 @@ export const confirmarTurno = async (req: Request, res: Response): Promise<void>
     const targetId = String(paramId || id || turno_id || turnoId || '').trim();
     const targetNro = nro_turno || nroTurno ? Number(nro_turno || nroTurno) : null;
     const targetPatente = String(patente || vehiculo_dominio || vehiculoDominio || '').trim().toUpperCase();
+    const targetPatenteNorm = normalizePatente(targetPatente);
     const targetDni = String(cliente_dni || clienteDni || '').trim().replace(/[\s-]/g, '');
     const targetNombre = String(cliente_nombre || '').trim().toLowerCase();
 
-    // Buscar turno en memoria local (o Supabase)
-    const turno = localTurnosSeed.find(t => {
-      if (targetId && t.id === targetId) return true;
-      if (targetNro && t.nro_turno === targetNro) return true;
-      if (targetPatente && t.vehiculo_dominio.toUpperCase() === targetPatente) {
-        if (!targetId && !targetNro) return true;
-      }
-      if (targetDni && t.cliente_documento && t.cliente_documento.replace(/[\s-]/g, '') === targetDni) {
-        if (!targetId && !targetNro && !targetPatente) return true;
-      }
-      if (targetNombre && t.cliente_nombre && t.cliente_nombre.toLowerCase().includes(targetNombre)) {
-        if (!targetId && !targetNro && !targetPatente && !targetDni) return true;
-      }
-      return false;
-    });
+    // Buscar turno en memoria local (priorizando ID/nroTurno exacto, y luego turnos en estado confirmable cuando se busca por patente/DNI/nombre)
+    let turno: LocalTurno | undefined;
+    if (targetId) {
+      turno = localTurnosSeed.find(t => t.id === targetId);
+    } else if (targetNro) {
+      turno = localTurnosSeed.find(t => t.nro_turno === targetNro);
+    } else {
+      const candidates = localTurnosSeed.filter(t => {
+        if (targetPatenteNorm && normalizePatente(t.vehiculo_dominio) === targetPatenteNorm) return true;
+        if (targetDni && t.cliente_documento && t.cliente_documento.replace(/[\s-]/g, '') === targetDni) {
+          if (!targetPatenteNorm) return true;
+        }
+        if (targetNombre && t.cliente_nombre && t.cliente_nombre.toLowerCase().includes(targetNombre)) {
+          if (!targetPatenteNorm && !targetDni) return true;
+        }
+        return false;
+      });
+      turno =
+        candidates.find(t => {
+          const est = t.estado.trim().toLowerCase();
+          return est === 'solicitado' || est === 'pendiente de confirmación (24hs)' || est === 'pendiente de confirmacion (24hs)';
+        }) || candidates[0];
+    }
 
     if (!turno) {
       res.status(404).json({
         success: false,
         error: 'Turno no encontrado'
+      });
+      return;
+    }
+
+    // Validar estado previo confirmable (Solicitado -> Confirmado)
+    const estadoPrevioConfirmNorm = turno.estado.trim().toLowerCase();
+    if (estadoPrevioConfirmNorm === 'confirmado') {
+      res.status(400).json({
+        success: false,
+        error: 'El turno ya se encuentra confirmado',
+        message: 'El turno ya se encuentra confirmado',
+        estado: turno.estado
+      });
+      return;
+    }
+    const canConfirm =
+      estadoPrevioConfirmNorm === 'solicitado' ||
+      estadoPrevioConfirmNorm === 'pendiente de confirmación (24hs)' ||
+      estadoPrevioConfirmNorm === 'pendiente de confirmacion (24hs)';
+
+    if (!canConfirm) {
+      res.status(400).json({
+        success: false,
+        error: 'Sólo se pueden confirmar turnos en estado Solicitado',
+        message: 'Sólo se pueden confirmar turnos en estado Solicitado',
+        estado: turno.estado
       });
       return;
     }
@@ -699,15 +873,33 @@ export const confirmarTurno = async (req: Request, res: Response): Promise<void>
       return;
     }
 
-    // Criterio 2: El turno pasa de "Solicitado" a "Confirmado"
-    turno.estado = 'Confirmado';
-
     // Criterio 3: Se registra la fecha, hora y medio de contacto de la confirmación
     const { fecha: regFecha, hora: regHora } = formatDateTimeDisplay(currentDate);
+
+    // MODP / CP-EST-01: Cerrar CambioEstadoTurno "Solicitado" (fecha_fin, hora_fin)
+    // y crear CambioEstadoTurno "Confirmado" (fecha_inicio, hora_inicio, fecha_fin: null, hora_fin: null)
+    const transicion = aplicarCambioEstadoTurno({
+      turnoId: turno.id,
+      estadoActual: turno.estado,
+      nuevoEstado: 'Confirmado',
+      fechaCambio: regFecha,
+      horaCambio: regHora,
+      observacionNuevo: `Confirmado por ${medioNorm}`,
+      cambiosExistentes: turno.cambios_estado || turno.cambiosEstado,
+      historialExistente: turno.historial_estados || turno.historialEstados,
+      createdAt: turno.created_at
+    });
+
+    // Criterio 2: El turno pasa de "Solicitado" a "Confirmado"
+    turno.estado = 'Confirmado';
     turno.fecha_confirmacion = regFecha;
     turno.hora_confirmacion = regHora;
     turno.medio_confirmacion = medioNorm;
     turno.notificacion_enviada = true;
+    turno.cambios_estado = transicion.cambiosEstado;
+    turno.cambiosEstado = transicion.cambiosEstado;
+    turno.historial_estados = transicion.historialEstados;
+    turno.historialEstados = transicion.historialEstados;
 
     // Obtener datos del cliente para la notificación
     const cliente = localClientsSeed.find(c => 
@@ -724,6 +916,8 @@ export const confirmarTurno = async (req: Request, res: Response): Promise<void>
       enviada: true,
       fecha_turno: turno.fecha,
       hora_turno: turno.hora,
+      fechaTurno: turno.fecha,
+      horaTurno: turno.hora,
       medio: medioNorm,
       destinatario,
       mensaje: `Estimado/a ${turno.cliente_nombre || 'Cliente'}, su turno para el vehículo ${turno.vehiculo_dominio} en la sucursal ${turno.sucursal} ha sido confirmado para el día ${turno.fecha} a las ${turno.hora} hs.`
@@ -736,13 +930,20 @@ export const confirmarTurno = async (req: Request, res: Response): Promise<void>
         await supabase
           .from('turnos')
           .update({
-            estado_turno_id: 3, // Confirmado
+            estado_turno_id: getEstadoTurnoId('Confirmado'),
             fecha_confirmacion: regFecha,
             hora_confirmacion: regHora,
             medio_confirmacion: medioNorm,
-            notificacion_enviada: true
+            notificacion_enviada: true,
+            historial_estados: turno.historial_estados,
+            cambios_estado: turno.cambios_estado
           })
           .eq('nro_turno', turno.nro_turno);
+
+        await syncCambioEstadoSupabase(turno, {
+          cambioCerrado: transicion.cambioCerrado,
+          cambioNuevo: transicion.cambioNuevo
+        });
       } catch (dbErr) {
         console.warn('[Backend Turnos] Error actualizando turno en Supabase, persistido en memoria local:', dbErr);
       }
@@ -753,8 +954,19 @@ export const confirmarTurno = async (req: Request, res: Response): Promise<void>
       message: 'Turno confirmado exitosamente',
       estado: 'Confirmado',
       fecha_confirmacion: regFecha,
+      fechaConfirmacion: regFecha,
       hora_confirmacion: regHora,
+      horaConfirmacion: regHora,
       medio_confirmacion: medioNorm,
+      medioConfirmacion: medioNorm,
+      historial_estados: turno.historial_estados,
+      historialEstados: turno.historial_estados,
+      cambios_estado: turno.cambios_estado,
+      cambiosEstado: turno.cambios_estado,
+      cambio_estado_cerrado: transicion.cambioCerrado,
+      cambioEstadoCerrado: transicion.cambioCerrado,
+      cambio_estado_actual: transicion.cambioNuevo,
+      cambioEstadoActual: transicion.cambioNuevo,
       turno,
       notificacion
     });
@@ -797,7 +1009,9 @@ export const cancelarTurno = async (req: Request, res: Response): Promise<void> 
       motivo_cancelacion,
       motivoCancelacion,
       cancelado_por,
-      canceladoPor
+      canceladoPor,
+      fecha_hora_actual,
+      fechaHoraActual
     } = req.body;
 
     const targetId = String(paramId || id || turno_id || turnoId || '').trim();
@@ -882,14 +1096,34 @@ export const cancelarTurno = async (req: Request, res: Response): Promise<void> 
     }
 
     // Criterio 3: El turno pasa a "Cancelado" y el horario vuelve a estar disponible
+    let cancelDate = new Date();
+    if (fecha_hora_actual || fechaHoraActual) {
+      const parsedCancel = parseFullDateTime(String(fecha_hora_actual || fechaHoraActual));
+      if (parsedCancel) cancelDate = parsedCancel;
+    }
+    const { fecha: regFecha, hora: regHora } = formatDateTimeDisplay(cancelDate);
+
+    const transicion = aplicarCambioEstadoTurno({
+      turnoId: turno.id,
+      estadoActual: turno.estado,
+      nuevoEstado: 'Cancelado',
+      fechaCambio: regFecha,
+      horaCambio: regHora,
+      observacionNuevo: `Cancelado: ${rawMotivo}`,
+      cambiosExistentes: turno.cambios_estado || turno.cambiosEstado,
+      historialExistente: turno.historial_estados || turno.historialEstados,
+      createdAt: turno.created_at
+    });
+
     turno.estado = 'Cancelado';
     turno.motivo_cancelacion = rawMotivo;
-
-    const now = new Date();
-    const { fecha: regFecha, hora: regHora } = formatDateTimeDisplay(now);
     turno.fecha_cancelacion = regFecha;
     turno.hora_cancelacion = regHora;
     turno.cancelado_por = String(cancelado_por || canceladoPor || (req as any).user?.nombre || 'Responsable de Recepción');
+    turno.cambios_estado = transicion.cambiosEstado;
+    turno.cambiosEstado = transicion.cambiosEstado;
+    turno.historial_estados = transicion.historialEstados;
+    turno.historialEstados = transicion.historialEstados;
 
     // Sincronizar en Supabase si está disponible
     if (isSupabaseConnected && supabase) {
@@ -897,13 +1131,20 @@ export const cancelarTurno = async (req: Request, res: Response): Promise<void> 
         await supabase
           .from('turnos')
           .update({
-            estado_turno_id: 5, // 'Cancelado'
+            estado_turno_id: getEstadoTurnoId('Cancelado'),
             motivo_cancelacion: rawMotivo,
             fecha_cancelacion: regFecha,
             hora_cancelacion: regHora,
-            cancelado_por: turno.cancelado_por
+            cancelado_por: turno.cancelado_por,
+            historial_estados: turno.historial_estados,
+            cambios_estado: turno.cambios_estado
           })
           .eq('nro_turno', turno.nro_turno);
+
+        await syncCambioEstadoSupabase(turno, {
+          cambioCerrado: transicion.cambioCerrado,
+          cambioNuevo: transicion.cambioNuevo
+        });
       } catch (dbErr) {
         console.warn('[Backend Turnos] Error actualizando cancelación en Supabase, persistido en memoria local:', dbErr);
       }
@@ -914,6 +1155,14 @@ export const cancelarTurno = async (req: Request, res: Response): Promise<void> 
       message: 'Turno cancelado exitosamente',
       estado: 'Cancelado',
       motivo_cancelacion: rawMotivo,
+      historial_estados: turno.historial_estados,
+      historialEstados: turno.historial_estados,
+      cambios_estado: turno.cambios_estado,
+      cambiosEstado: turno.cambios_estado,
+      cambio_estado_cerrado: transicion.cambioCerrado,
+      cambioEstadoCerrado: transicion.cambioCerrado,
+      cambio_estado_actual: transicion.cambioNuevo,
+      cambioEstadoActual: transicion.cambioNuevo,
       turno,
       horario_liberado: {
         sucursal: turno.sucursal,
@@ -965,7 +1214,9 @@ export const modificarTurno = async (req: Request, res: Response): Promise<void>
       horario,
       nueva_sucursal,
       nuevaSucursal,
-      sucursal
+      sucursal,
+      fecha_hora_actual,
+      fechaHoraActual
     } = req.body;
 
     const targetId = String(paramId || id || turno_id || turnoId || '').trim();
@@ -1102,32 +1353,41 @@ export const modificarTurno = async (req: Request, res: Response): Promise<void>
       return;
     }
 
-    // Criterio 3: Si el turno estaba Confirmado pasa a "Reprogramado" hasta reasignarle fecha y horario, y vuelve a "Confirmado"
-    if (!turno.historial_estados) {
-      turno.historial_estados = [estadoPrevio];
-    }
-
-    if (estadoPrevio === 'Confirmado') {
-      // Registra en el historial que pasó a Reprogramado y luego a Confirmado
-      turno.historial_estados.push('Reprogramado', 'Confirmado');
-      turno.estado = 'Confirmado';
-    } else {
-      turno.historial_estados.push('Reprogramado', 'Solicitado');
-      turno.estado = 'Solicitado';
-    }
-
     const anteriorFecha = turno.fecha;
     const anteriorHora = turno.hora;
 
-    // Actualizar fecha y horario
+    let modDate = new Date();
+    if (fecha_hora_actual || fechaHoraActual) {
+      const parsedMod = parseFullDateTime(String(fecha_hora_actual || fechaHoraActual));
+      if (parsedMod) modDate = parsedMod;
+    }
+    const { fecha: regFecha, hora: regHora } = formatDateTimeDisplay(modDate);
+
+    // Criterio 3: Si el turno estaba Confirmado pasa a "Reprogramado" hasta reasignarle fecha y horario, y vuelve a "Confirmado"
+    const estadoFinal = estadoPrevio === 'Confirmado' ? 'Confirmado' : 'Solicitado';
+    const transicion = aplicarReprogramacionTurno({
+      turnoId: turno.id,
+      estadoPrevio,
+      estadoFinal,
+      fechaCambio: regFecha,
+      horaCambio: regHora,
+      observacionReprogramado: `Reprogramado de ${anteriorFecha} ${anteriorHora} a ${normNewDate.ddmmyyyy} ${normNewTime}`,
+      observacionFinal: `Reasignado para el ${normNewDate.ddmmyyyy} a las ${normNewTime} (${sucursalConfig.nombre})`,
+      cambiosExistentes: turno.cambios_estado || turno.cambiosEstado,
+      historialExistente: turno.historial_estados || turno.historialEstados,
+      createdAt: turno.created_at
+    });
+
+    turno.estado = estadoFinal;
     turno.fecha = normNewDate.ddmmyyyy;
     turno.hora = normNewTime;
     turno.sucursal = sucursalConfig.nombre;
-
-    const now = new Date();
-    const { fecha: regFecha, hora: regHora } = formatDateTimeDisplay(now);
     turno.fecha_modificacion = regFecha;
     turno.hora_modificacion = regHora;
+    turno.cambios_estado = transicion.cambiosEstado;
+    turno.cambiosEstado = transicion.cambiosEstado;
+    turno.historial_estados = transicion.historialEstados;
+    turno.historialEstados = transicion.historialEstados;
 
     // Sincronizar en Supabase si está disponible
     if (isSupabaseConnected && supabase) {
@@ -1138,9 +1398,20 @@ export const modificarTurno = async (req: Request, res: Response): Promise<void>
             fecha: normNewDate.iso,
             hora: normNewTime,
             sucursal: sucursalConfig.nombre,
-            estado_turno_id: turno.estado === 'Confirmado' ? 3 : 1
+            estado_turno_id: getEstadoTurnoId(estadoFinal),
+            fecha_modificacion: regFecha,
+            hora_modificacion: regHora,
+            historial_estados: turno.historial_estados,
+            cambios_estado: turno.cambios_estado
           })
           .eq('nro_turno', turno.nro_turno);
+
+        const reprogramadoIntermedio = transicion.cambiosEstado[transicion.cambiosEstado.length - 2];
+        await syncCambioEstadoSupabase(turno, {
+          cambioCerrado: transicion.cambioCerrado,
+          cambiosIntermedios: reprogramadoIntermedio ? [reprogramadoIntermedio] : [],
+          cambioNuevo: transicion.cambioNuevo
+        });
       } catch (dbErr) {
         console.warn('[Backend Turnos] Error actualizando turno en Supabase, persistido en memoria local:', dbErr);
       }
@@ -1154,6 +1425,9 @@ export const modificarTurno = async (req: Request, res: Response): Promise<void>
       hora: normNewTime,
       estado: turno.estado,
       historial_estados: turno.historial_estados,
+      historialEstados: turno.historial_estados,
+      cambios_estado: turno.cambios_estado,
+      cambiosEstado: turno.cambios_estado,
       horario_anterior_liberado: {
         sucursal: turno.sucursal,
         fecha: anteriorFecha,
@@ -1288,9 +1562,47 @@ export const finalizarTurno = async (req: Request, res: Response): Promise<void>
         return;
       }
 
+      const transicionAusente = aplicarCambioEstadoTurno({
+        turnoId: turno.id,
+        estadoActual: turno.estado,
+        nuevoEstado: 'Ausente',
+        fechaCambio: normHoy.ddmmyyyy,
+        horaCambio: refHora,
+        observacionNuevo: 'Vehículo no presentado en fecha y hora del turno',
+        cambiosExistentes: turno.cambios_estado || turno.cambiosEstado,
+        historialExistente: turno.historial_estados || turno.historialEstados,
+        createdAt: turno.created_at
+      });
+
       turno.estado = 'Ausente';
       turno.presupuesto_habilitado = false;
       turno.vehiculo_presentado = false;
+      turno.cambios_estado = transicionAusente.cambiosEstado;
+      turno.cambiosEstado = transicionAusente.cambiosEstado;
+      turno.historial_estados = transicionAusente.historialEstados;
+      turno.historialEstados = transicionAusente.historialEstados;
+
+      if (isSupabaseConnected && supabase) {
+        try {
+          await supabase
+            .from('turnos')
+            .update({
+              estado_turno_id: getEstadoTurnoId('Ausente'),
+              presupuesto_habilitado: false,
+              vehiculo_presentado: false,
+              historial_estados: turno.historial_estados,
+              cambios_estado: turno.cambios_estado
+            })
+            .eq('nro_turno', turno.nro_turno);
+
+          await syncCambioEstadoSupabase(turno, {
+            cambioCerrado: transicionAusente.cambioCerrado,
+            cambioNuevo: transicionAusente.cambioNuevo
+          });
+        } catch (dbErr) {
+          console.warn('[Backend Turnos] Error actualizando ausencia en Supabase:', dbErr);
+        }
+      }
 
       res.status(200).json({
         success: true,
@@ -1300,6 +1612,10 @@ export const finalizarTurno = async (req: Request, res: Response): Promise<void>
         presupuestoHabilitado: false,
         vehiculo_presentado: false,
         vehiculoPresentado: false,
+        historial_estados: turno.historial_estados,
+        historialEstados: turno.historial_estados,
+        cambios_estado: turno.cambios_estado,
+        cambiosEstado: turno.cambios_estado,
         turno
       });
       return;
@@ -1322,12 +1638,29 @@ export const finalizarTurno = async (req: Request, res: Response): Promise<void>
       return;
     }
 
+    const finHora = normalizeTime(rawHoraRef || formatDateTimeDisplay(new Date()).hora);
+    const transicionFin = aplicarCambioEstadoTurno({
+      turnoId: turno.id,
+      estadoActual: turno.estado,
+      nuevoEstado: 'Finalizado',
+      fechaCambio: normHoy.ddmmyyyy,
+      horaCambio: finHora,
+      observacionNuevo: 'Presentación del vehículo registrada en recepción',
+      cambiosExistentes: turno.cambios_estado || turno.cambiosEstado,
+      historialExistente: turno.historial_estados || turno.historialEstados,
+      createdAt: turno.created_at
+    });
+
     // Criterio 2: El turno pasa a "Finalizado"
     turno.estado = 'Finalizado';
     // Criterio 3: Queda habilitado el registro del presupuesto
     turno.presupuesto_habilitado = true;
     turno.vehiculo_presentado = true;
     turno.fecha_finalizacion = normHoy.ddmmyyyy;
+    turno.cambios_estado = transicionFin.cambiosEstado;
+    turno.cambiosEstado = transicionFin.cambiosEstado;
+    turno.historial_estados = transicionFin.historialEstados;
+    turno.historialEstados = transicionFin.historialEstados;
 
     // Sincronizar con Supabase si está disponible
     if (isSupabaseConnected && supabase) {
@@ -1335,11 +1668,19 @@ export const finalizarTurno = async (req: Request, res: Response): Promise<void>
         await supabase
           .from('turnos')
           .update({
+            estado_turno_id: getEstadoTurnoId('Finalizado'),
             presupuesto_habilitado: true,
             vehiculo_presentado: true,
-            fecha_finalizacion: normHoy.ddmmyyyy
+            fecha_finalizacion: normHoy.ddmmyyyy,
+            historial_estados: turno.historial_estados,
+            cambios_estado: turno.cambios_estado
           })
           .eq('nro_turno', turno.nro_turno);
+
+        await syncCambioEstadoSupabase(turno, {
+          cambioCerrado: transicionFin.cambioCerrado,
+          cambioNuevo: transicionFin.cambioNuevo
+        });
       } catch (dbErr) {
         console.warn('[Backend Turnos] Error actualizando finalización en Supabase:', dbErr);
       }
@@ -1353,6 +1694,10 @@ export const finalizarTurno = async (req: Request, res: Response): Promise<void>
       presupuestoHabilitado: true,
       vehiculo_presentado: true,
       vehiculoPresentado: true,
+      historial_estados: turno.historial_estados,
+      historialEstados: turno.historial_estados,
+      cambios_estado: turno.cambios_estado,
+      cambiosEstado: turno.cambios_estado,
       turno: {
         ...turno,
         presupuestoHabilitado: true,
@@ -1473,16 +1818,54 @@ export const registrarAusenciaTurno = async (req: Request, res: Response): Promi
 
     const actualizados: LocalTurno[] = [];
 
-    candidatos.forEach(t => {
+    for (const t of candidatos) {
       const tDT = parseFullDateTime(t.fecha, t.hora);
       const llegoFechaHora = !refDT || !tDT || refDT.getTime() >= tDT.getTime();
       if (t.estado === 'Confirmado' && !t.vehiculo_presentado && llegoFechaHora) {
+        const transicionAus = aplicarCambioEstadoTurno({
+          turnoId: t.id,
+          estadoActual: t.estado,
+          nuevoEstado: 'Ausente',
+          fechaCambio: normRefFecha.ddmmyyyy,
+          horaCambio: normRefHora,
+          observacionNuevo: 'Vehículo no presentado en fecha y hora del turno',
+          cambiosExistentes: t.cambios_estado || t.cambiosEstado,
+          historialExistente: t.historial_estados || t.historialEstados,
+          createdAt: t.created_at
+        });
+
         t.estado = 'Ausente';
         t.presupuesto_habilitado = false;
         t.vehiculo_presentado = false;
+        t.cambios_estado = transicionAus.cambiosEstado;
+        t.cambiosEstado = transicionAus.cambiosEstado;
+        t.historial_estados = transicionAus.historialEstados;
+        t.historialEstados = transicionAus.historialEstados;
         actualizados.push(t);
+
+        if (isSupabaseConnected && supabase) {
+          try {
+            await supabase
+              .from('turnos')
+              .update({
+                estado_turno_id: getEstadoTurnoId('Ausente'),
+                presupuesto_habilitado: false,
+                vehiculo_presentado: false,
+                historial_estados: t.historial_estados,
+                cambios_estado: t.cambios_estado
+              })
+              .eq('nro_turno', t.nro_turno);
+
+            await syncCambioEstadoSupabase(t, {
+              cambioCerrado: transicionAus.cambioCerrado,
+              cambioNuevo: transicionAus.cambioNuevo
+            });
+          } catch (dbErr) {
+            console.warn('[Backend Turnos] Error actualizando ausencia en Supabase:', dbErr);
+          }
+        }
       }
-    });
+    }
 
     const turnoPrincipal = actualizados[0] || candidatos[0];
 
@@ -1492,6 +1875,10 @@ export const registrarAusenciaTurno = async (req: Request, res: Response): Promi
       estado: turnoPrincipal.estado,
       presupuesto_habilitado: Boolean(turnoPrincipal.presupuesto_habilitado),
       presupuestoHabilitado: Boolean(turnoPrincipal.presupuesto_habilitado),
+      historial_estados: turnoPrincipal.historial_estados,
+      historialEstados: turnoPrincipal.historial_estados,
+      cambios_estado: turnoPrincipal.cambios_estado,
+      cambiosEstado: turnoPrincipal.cambios_estado,
       turno: turnoPrincipal,
       turnosActualizados: actualizados.length
     });

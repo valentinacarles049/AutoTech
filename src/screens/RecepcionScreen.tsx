@@ -28,11 +28,13 @@ import {
   Ban,
   XCircle,
   CalendarClock,
-  Edit3
+  Edit3,
+  History
 } from 'lucide-react';
 import { useWorkshop } from '../context/WorkshopContext';
 import { 
   Turno, 
+  CambioEstadoTurno,
   Vehicle, 
   Client, 
   DisponibilidadHorariaResult, 
@@ -44,6 +46,58 @@ import {
   Presupuesto,
   RegistrarPresupuestoResult
 } from '../types/autotech';
+
+const parseDateTimeStr = (dateStr: string, timeStr?: string): Date | null => {
+  if (!dateStr) return null;
+  const combined = timeStr ? `${dateStr.trim()} ${timeStr.trim()}` : dateStr.trim();
+  const slashMatch = combined.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?$/);
+  if (slashMatch) {
+    return new Date(
+      Number(slashMatch[3]),
+      Number(slashMatch[2]) - 1,
+      Number(slashMatch[1]),
+      slashMatch[4] ? Number(slashMatch[4]) : 0,
+      slashMatch[5] ? Number(slashMatch[5]) : 0,
+      0
+    );
+  }
+  const isoMatch = combined.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s]+(\d{1,2}):(\d{2}))?$/);
+  if (isoMatch) {
+    return new Date(
+      Number(isoMatch[1]),
+      Number(isoMatch[2]) - 1,
+      Number(isoMatch[3]),
+      isoMatch[4] ? Number(isoMatch[4]) : 0,
+      isoMatch[5] ? Number(isoMatch[5]) : 0,
+      0
+    );
+  }
+  const dt = new Date(combined);
+  return isNaN(dt.getTime()) ? null : dt;
+};
+
+const formatDateTimeDisplayLocal = (dt: Date): string => {
+  const d = String(dt.getDate()).padStart(2, '0');
+  const m = String(dt.getMonth() + 1).padStart(2, '0');
+  const y = dt.getFullYear();
+  const hh = String(dt.getHours()).padStart(2, '0');
+  const mm = String(dt.getMinutes()).padStart(2, '0');
+  return `${d}/${m}/${y} ${hh}:${mm}`;
+};
+
+const computeOffsetDateTime = (fecha: string, hora: string, offsetHours: number): string => {
+  const base = parseDateTimeStr(fecha, hora);
+  if (!base) return formatDateTimeDisplayLocal(new Date());
+  const shifted = new Date(base.getTime() + offsetHours * 60 * 60 * 1000);
+  return formatDateTimeDisplayLocal(shifted);
+};
+
+const calcHoursRemaining = (fecha: string, hora: string, refStr: string): number | null => {
+  const turnoDt = parseDateTimeStr(fecha, hora);
+  const refDt = parseDateTimeStr(refStr);
+  if (!turnoDt || !refDt) return null;
+  return Math.round(((turnoDt.getTime() - refDt.getTime()) / (1000 * 60 * 60)) * 10) / 10;
+};
 
 export const RecepcionScreen: React.FC = () => {
   const { 
@@ -141,11 +195,12 @@ export const RecepcionScreen: React.FC = () => {
   // Estados para HU-11: Confirmar Turno
   const [confirmTurnoId, setConfirmTurnoId] = useState<string>('');
   const [confirmMedio, setConfirmMedio] = useState<'Mail' | 'Mensaje'>('Mail');
-  const [confirmFechaHoraActual, setConfirmFechaHoraActual] = useState<string>('13/11/2026 10:00');
+  const [confirmFechaHoraActual, setConfirmFechaHoraActual] = useState<string>(() => formatDateTimeDisplayLocal(new Date()));
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [confirmSuccess, setConfirmSuccess] = useState<string | null>(null);
   const [confirmResult, setConfirmResult] = useState<ConfirmarTurnoResult | null>(null);
   const [isConfirming, setIsConfirming] = useState<boolean>(false);
+  const [turnoHistorialModal, setTurnoHistorialModal] = useState<Turno | null>(null);
 
   // Estados para HU-12: Cancelar Turno
   const [turnoToCancel, setTurnoToCancel] = useState<Turno | null>(null);
@@ -336,8 +391,18 @@ export const RecepcionScreen: React.FC = () => {
     if (!confirmTurnoId && turnos.length > 0) {
       const solicitado = turnos.find(t => t.estado === 'Solicitado') || turnos[0];
       setConfirmTurnoId(solicitado.id);
+      setConfirmFechaHoraActual(computeOffsetDateTime(solicitado.fecha, solicitado.hora, -25));
     }
   }, [turnos, confirmTurnoId]);
+
+  const selectedConfirmTurno = useMemo(() => {
+    return turnos.find(t => t.id === confirmTurnoId) || turnos[0] || null;
+  }, [turnos, confirmTurnoId]);
+
+  const confirmHoursRemaining = useMemo(() => {
+    if (!selectedConfirmTurno) return null;
+    return calcHoursRemaining(selectedConfirmTurno.fecha, selectedConfirmTurno.hora, confirmFechaHoraActual);
+  }, [selectedConfirmTurno, confirmFechaHoraActual]);
 
   const handleConfirmarTurno = async () => {
     setConfirmError(null);
@@ -1393,7 +1458,9 @@ export const RecepcionScreen: React.FC = () => {
               <div>
                 <p className="font-bold text-sm">{confirmError}</p>
                 <p className="text-[11px] mt-1 text-red-600/90 dark:text-red-400/90">
-                  El turno no puede confirmarse porque faltan menos de 24 hs para el horario programado. El turno permanece en estado "Solicitado".
+                  {confirmError.toLowerCase().includes('plazo')
+                    ? 'El turno no puede confirmarse porque faltan menos de 24 hs para el horario programado. El turno conserva su estado anterior.'
+                    : 'Verifique el estado actual del turno seleccionado y su historial de cambios de estado.'}
                 </p>
               </div>
             </div>
@@ -1405,7 +1472,7 @@ export const RecepcionScreen: React.FC = () => {
               <div className="space-y-1">
                 <p className="font-bold text-sm">{confirmSuccess}</p>
                 <p className="text-[11px]">
-                  El turno pasó a estado <strong>"Confirmado"</strong> y se registró la confirmación con fecha, hora y medio.
+                  Se cerró el <strong>CambioEstadoTurno "Solicitado"</strong> (fecha/hora de fin) y se creó el nuevo <strong>CambioEstadoTurno "Confirmado"</strong> (fecha/hora de inicio) junto con fecha, hora y medio de confirmación.
                 </p>
               </div>
             </div>
@@ -1426,10 +1493,19 @@ export const RecepcionScreen: React.FC = () => {
                 {turnos.map(t => {
                   const isSelected = t.id === confirmTurnoId;
                   const isConfirmado = t.estado === 'Confirmado';
+                  const cambios = t.cambiosEstado || t.cambios_estado || [];
+                  const cambioVigente = cambios.find(c => c.fechaFin === null && c.fecha_fin === null) || cambios[cambios.length - 1];
+                  const hist = t.historialEstados || t.historial_estados || [t.estado];
                   return (
                     <div
                       key={t.id}
-                      onClick={() => setConfirmTurnoId(t.id)}
+                      onClick={() => {
+                        setConfirmTurnoId(t.id);
+                        setConfirmError(null);
+                        setConfirmSuccess(null);
+                        setConfirmResult(null);
+                        setConfirmFechaHoraActual(computeOffsetDateTime(t.fecha, t.hora, -25));
+                      }}
                       className={`p-3.5 rounded-xl border text-xs cursor-pointer transition-all ${
                         isSelected
                           ? 'border-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/20 ring-2 ring-emerald-500/20 shadow-sm'
@@ -1460,6 +1536,14 @@ export const RecepcionScreen: React.FC = () => {
                         </div>
                         <div className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400 font-bold">
                           {t.fecha} a las {t.hora} hs
+                        </div>
+                        <div className="pt-1 text-[10px] text-slate-500 dark:text-slate-400 border-t border-slate-200/70 dark:border-[#2A2A38]">
+                          <div><strong>Historial:</strong> {hist.join(' → ')}</div>
+                          {cambioVigente && (
+                            <div className="font-mono text-[9px] mt-0.5">
+                              Vigente desde {cambioVigente.fechaInicio || cambioVigente.fecha_inicio} {cambioVigente.horaInicio || cambioVigente.hora_inicio} hs
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1507,6 +1591,69 @@ export const RecepcionScreen: React.FC = () => {
                   Se registrará el medio seleccionado y se emitirá la notificación al cliente.
                 </p>
               </div>
+
+              {/* FECHA Y HORA DE CONFIRMACIÓN */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                    3. Fecha y Hora de Confirmación <span className="text-red-600 font-bold">*</span>
+                  </label>
+                  {confirmHoursRemaining !== null && (
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                      confirmHoursRemaining >= 24
+                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300'
+                        : 'bg-red-100 text-red-800 dark:bg-red-950/50 dark:text-red-300'
+                    }`}>
+                      Faltan {confirmHoursRemaining} hs {confirmHoursRemaining >= 24 ? '(En plazo ≥ 24h)' : '(Fuera de plazo < 24h)'}
+                    </span>
+                  )}
+                </div>
+
+                <input
+                  type="text"
+                  value={confirmFechaHoraActual}
+                  onChange={(e) => setConfirmFechaHoraActual(e.target.value)}
+                  placeholder="DD/MM/YYYY HH:mm"
+                  className="app-input w-full px-3 py-2 text-xs font-mono font-bold"
+                />
+
+                {selectedConfirmTurno && (
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setConfirmFechaHoraActual(computeOffsetDateTime(selectedConfirmTurno.fecha, selectedConfirmTurno.hora, -25))}
+                      className="px-2 py-1 rounded-lg text-[10px] font-bold bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
+                    >
+                      Faltando 25 hs ({computeOffsetDateTime(selectedConfirmTurno.fecha, selectedConfirmTurno.hora, -25)})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmFechaHoraActual(computeOffsetDateTime(selectedConfirmTurno.fecha, selectedConfirmTurno.hora, -24))}
+                      className="px-2 py-1 rounded-lg text-[10px] font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300"
+                    >
+                      Límite 24 hs ({computeOffsetDateTime(selectedConfirmTurno.fecha, selectedConfirmTurno.hora, -24)})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmFechaHoraActual(computeOffsetDateTime(selectedConfirmTurno.fecha, selectedConfirmTurno.hora, -23))}
+                      className="px-2 py-1 rounded-lg text-[10px] font-bold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800"
+                    >
+                      Faltando 23 hs ({computeOffsetDateTime(selectedConfirmTurno.fecha, selectedConfirmTurno.hora, -23)})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmFechaHoraActual(formatDateTimeDisplayLocal(new Date()))}
+                      className="px-2 py-1 rounded-lg text-[10px] font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+                    >
+                      Ahora
+                    </button>
+                  </div>
+                )}
+
+                <p className="text-[11px] text-slate-400">
+                  Fecha/hora utilizada para validar el plazo ≥ 24 hs y registrar el cierre/inicio de <code>CambioEstadoTurno</code>.
+                </p>
+              </div>
             </div>
           )}
 
@@ -1522,28 +1669,93 @@ export const RecepcionScreen: React.FC = () => {
               <span>{isConfirming ? 'Confirmando...' : 'Confirmar Turno'}</span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => setActiveTab('agenda')}
-              className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-            >
-              Ver en Agenda
-            </button>
+            <div className="flex items-center space-x-2">
+              {selectedConfirmTurno && (
+                <button
+                  type="button"
+                  onClick={() => setTurnoHistorialModal(selectedConfirmTurno)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center space-x-1.5"
+                >
+                  <History className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Ver Historial Completo</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setActiveTab('agenda')}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                Ver en Agenda
+              </button>
+            </div>
           </div>
 
-          {/* DETALLES DE LA NOTIFICACIÓN EMITIDA */}
-          {confirmResult?.success && confirmResult.notificacion && (
-            <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#1A1A22] border border-emerald-200 dark:border-emerald-900/60 space-y-2 animate-in fade-in">
-              <div className="flex items-center space-x-2 text-xs font-bold text-emerald-600 dark:text-emerald-400">
-                <CheckCircle2 className="w-4 h-4" />
-                <span>Notificación Enviada al Cliente</span>
+          {/* DETALLE DE CAMBIO DE ESTADO DE TURNO + NOTIFICACIÓN */}
+          {confirmResult?.success && (
+            <div className="space-y-4 animate-in fade-in">
+              {/* Trazabilidad CambioEstadoTurno */}
+              <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#1A1A22] border border-slate-200 dark:border-[#3A3A48] space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center space-x-2 text-xs font-bold text-slate-900 dark:text-white">
+                    <History className="w-4 h-4 text-emerald-600" />
+                    <span>Registro de CambioEstadoTurno (MODP / HU-11)</span>
+                  </div>
+                  <span className="text-[11px] font-mono text-emerald-700 dark:text-emerald-400 font-bold">
+                    Historial: {(confirmResult.historialEstados || confirmResult.historial_estados || ['Solicitado', 'Confirmado']).join(' ➔ ')}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                  {(confirmResult.cambioEstadoCerrado || confirmResult.cambio_estado_cerrado) && (() => {
+                    const cerrado = confirmResult.cambioEstadoCerrado || confirmResult.cambio_estado_cerrado!;
+                    return (
+                      <div className="p-3 rounded-lg bg-white dark:bg-[#121218] border border-amber-200 dark:border-amber-900/50 space-y-1">
+                        <div className="text-[10px] uppercase font-bold text-amber-700 dark:text-amber-400">
+                          Estado Cerrado: {cerrado.estado}
+                        </div>
+                        <div className="font-mono text-[11px] text-slate-700 dark:text-slate-300">
+                          Inicio: {cerrado.fechaInicio || cerrado.fecha_inicio} {cerrado.horaInicio || cerrado.hora_inicio} hs
+                        </div>
+                        <div className="font-mono text-[11px] font-bold text-amber-700 dark:text-amber-300">
+                          Fin: {cerrado.fechaFin || cerrado.fecha_fin} {cerrado.horaFin || cerrado.hora_fin} hs
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {(confirmResult.cambioEstadoActual || confirmResult.cambio_estado_actual) && (() => {
+                    const actual = confirmResult.cambioEstadoActual || confirmResult.cambio_estado_actual!;
+                    return (
+                      <div className="p-3 rounded-lg bg-white dark:bg-[#121218] border border-emerald-200 dark:border-emerald-900/50 space-y-1">
+                        <div className="text-[10px] uppercase font-bold text-emerald-700 dark:text-emerald-400">
+                          Nuevo Estado Vigente: {actual.estado}
+                        </div>
+                        <div className="font-mono text-[11px] font-bold text-emerald-700 dark:text-emerald-300">
+                          Inicio: {actual.fechaInicio || actual.fecha_inicio} {actual.horaInicio || actual.hora_inicio} hs
+                        </div>
+                        <div className="font-mono text-[11px] text-slate-500">
+                          Fin: En curso (vigente) • Medio: {confirmResult.medioConfirmacion}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
               </div>
-              <div className="text-xs text-slate-700 dark:text-slate-300 font-mono bg-white dark:bg-[#121218] p-3 rounded-lg border border-slate-200 dark:border-[#2A2A38]">
-                <div><strong>Destinatario:</strong> {confirmResult.notificacion.destinatario} ({confirmResult.notificacion.medio})</div>
-                <div><strong>Fecha del Turno:</strong> {confirmResult.notificacion.fechaTurno}</div>
-                <div><strong>Hora del Turno:</strong> {confirmResult.notificacion.horaTurno} hs</div>
-                <div className="mt-1 text-slate-500 italic">"{confirmResult.notificacion.mensaje}"</div>
-              </div>
+
+              {confirmResult.notificacion && (
+                <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#1A1A22] border border-emerald-200 dark:border-emerald-900/60 space-y-2">
+                  <div className="flex items-center space-x-2 text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Notificación Enviada al Cliente</span>
+                  </div>
+                  <div className="text-xs text-slate-700 dark:text-slate-300 font-mono bg-white dark:bg-[#121218] p-3 rounded-lg border border-slate-200 dark:border-[#2A2A38]">
+                    <div><strong>Destinatario:</strong> {confirmResult.notificacion.destinatario} ({confirmResult.notificacion.medio})</div>
+                    <div><strong>Fecha del Turno:</strong> {confirmResult.notificacion.fechaTurno || confirmResult.notificacion.fecha_turno}</div>
+                    <div><strong>Hora del Turno:</strong> {confirmResult.notificacion.horaTurno || confirmResult.notificacion.hora_turno} hs</div>
+                    <div className="mt-1 text-slate-500 italic">"{confirmResult.notificacion.mensaje}"</div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1796,13 +2008,31 @@ export const RecepcionScreen: React.FC = () => {
                               {t.estado}
                             </span>
                           )}
+                          {(t.historialEstados || t.historial_estados) && (t.historialEstados || t.historial_estados)!.length > 0 && (
+                            <div className="text-[9px] text-slate-500 dark:text-slate-400 mt-1 max-w-[180px] truncate" title={(t.historialEstados || t.historial_estados)!.join(' → ')}>
+                              {(t.historialEstados || t.historial_estados)!.join(' → ')}
+                            </div>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-center">
-                          <div className="flex items-center justify-center space-x-1.5">
+                          <div className="flex flex-wrap items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setTurnoHistorialModal(t)}
+                              className="px-2.5 py-1 bg-slate-500/10 hover:bg-slate-500/20 text-slate-700 dark:text-slate-300 rounded-lg text-[10px] font-bold border border-slate-500/20 transition-colors flex items-center space-x-1"
+                              title="Ver historial de CambioEstadoTurno"
+                            >
+                              <History className="w-3 h-3" />
+                              <span>Historial</span>
+                            </button>
                             {t.estado === 'Solicitado' && (
                               <button
                                 onClick={() => {
                                   setConfirmTurnoId(t.id);
+                                  setConfirmError(null);
+                                  setConfirmSuccess(null);
+                                  setConfirmResult(null);
+                                  setConfirmFechaHoraActual(computeOffsetDateTime(t.fecha, t.hora, -25));
                                   setActiveTab('confirmar-turno');
                                 }}
                                 className="px-2.5 py-1 bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-600 dark:text-emerald-400 rounded-lg text-[10px] font-bold border border-emerald-600/20 transition-colors flex items-center space-x-1"
@@ -2484,9 +2714,14 @@ export const RecepcionScreen: React.FC = () => {
               <div><strong>Sucursal actual:</strong> {turnoToModify.sucursal}</div>
               <div><strong>Fecha y Hora actual:</strong> {turnoToModify.fecha} a las {turnoToModify.hora} hs</div>
               <div><strong>Estado Actual:</strong> <span className="font-bold text-emerald-600">{turnoToModify.estado}</span></div>
-              {turnoToModify.historialEstados && turnoToModify.historialEstados.length > 0 && (
+              {(turnoToModify.historialEstados || turnoToModify.historial_estados) && (turnoToModify.historialEstados || turnoToModify.historial_estados)!.length > 0 && (
                 <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                  <strong>Historial de estados:</strong> {turnoToModify.historialEstados.join(' ➔ ')}
+                  <strong>Historial de estados:</strong> {(turnoToModify.historialEstados || turnoToModify.historial_estados)!.join(' ➔ ')}
+                </div>
+              )}
+              {(turnoToModify.cambiosEstado || turnoToModify.cambios_estado) && (turnoToModify.cambiosEstado || turnoToModify.cambios_estado)!.length > 0 && (
+                <div className="text-[10px] font-mono text-slate-500 dark:text-slate-400 pt-1">
+                  <strong>Cambios registrados:</strong> {(turnoToModify.cambiosEstado || turnoToModify.cambios_estado)!.length} ({(turnoToModify.cambiosEstado || turnoToModify.cambios_estado)!.map((c: CambioEstadoTurno) => `${c.estado} [${c.fechaInicio || c.fecha_inicio} ${c.horaInicio || c.hora_inicio} → ${c.fechaFin || c.fecha_fin || 'Vigente'}]`).join(' | ')})
                 </div>
               )}
             </div>
@@ -2597,6 +2832,118 @@ export const RecepcionScreen: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ============================================================ */}
+      {/* MODAL: HISTORIAL DE CAMBIOS DE ESTADO (CambioEstadoTurno) */}
+      {/* ============================================================ */}
+      {turnoHistorialModal && (() => {
+        const historial = turnoHistorialModal.historialEstados || turnoHistorialModal.historial_estados || [turnoHistorialModal.estado];
+        const cambios = turnoHistorialModal.cambiosEstado || turnoHistorialModal.cambios_estado || [];
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+            <div className="card-surface w-full max-w-2xl rounded-2xl p-6 shadow-2xl border border-slate-200 dark:border-[#3A3A48] space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-[#3A3A48]">
+                <div className="flex items-center space-x-2 text-emerald-600">
+                  <History className="w-5 h-5" />
+                  <h3 className="font-bold text-sm text-slate-900 dark:text-white">
+                    Historial de Estados (CambioEstadoTurno) — Turno #{turnoHistorialModal.nroTurno}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTurnoHistorialModal(null)}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                >
+                  <XCircle className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-[#1A1A22] border border-slate-200 dark:border-[#2A2A38] text-xs grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div><strong>Cliente:</strong> {turnoHistorialModal.clienteNombre || turnoHistorialModal.cliente}</div>
+                <div><strong>Patente:</strong> <span className="font-mono">{turnoHistorialModal.vehiculoDominio}</span></div>
+                <div><strong>Turno:</strong> {turnoHistorialModal.fecha} {turnoHistorialModal.hora} hs</div>
+                <div><strong>Estado Actual:</strong> <span className="font-bold text-emerald-600">{turnoHistorialModal.estado}</span></div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                <span className="font-bold text-slate-600 dark:text-slate-400 mr-1">Secuencia:</span>
+                {historial.map((h, i) => (
+                  <React.Fragment key={`${h}-${i}`}>
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                      {h}
+                    </span>
+                    {i < historial.length - 1 && <span className="text-slate-400 font-bold">➔</span>}
+                  </React.Fragment>
+                ))}
+              </div>
+
+              <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-[#3A3A48]">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 dark:bg-[#1A1A22] text-slate-500 uppercase text-[10px] font-bold border-b border-slate-200 dark:border-[#3A3A48]">
+                    <tr>
+                      <th className="px-3 py-2">#</th>
+                      <th className="px-3 py-2">Estado</th>
+                      <th className="px-3 py-2">Fecha y Hora Inicio</th>
+                      <th className="px-3 py-2">Fecha y Hora Fin</th>
+                      <th className="px-3 py-2">Observación</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 dark:divide-[#2A2A38]">
+                    {cambios.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-3 py-4 text-center text-slate-500">
+                          Sin transiciones registradas
+                        </td>
+                      </tr>
+                    ) : (
+                      cambios.map((c, idx) => {
+                        const fIni = c.fechaInicio || c.fecha_inicio || '-';
+                        const hIni = c.horaInicio || c.hora_inicio || '';
+                        const fFin = c.fechaFin ?? c.fecha_fin ?? null;
+                        const hFin = c.horaFin ?? c.hora_fin ?? null;
+                        const vigente = fFin === null;
+                        return (
+                          <tr key={c.id || idx} className={vigente ? 'bg-emerald-50/40 dark:bg-emerald-950/15' : ''}>
+                            <td className="px-3 py-2 font-mono text-slate-400">{idx + 1}</td>
+                            <td className="px-3 py-2 font-bold text-slate-900 dark:text-white">{c.estado}</td>
+                            <td className="px-3 py-2 font-mono text-slate-700 dark:text-slate-300">
+                              {fIni} {hIni ? `${hIni} hs` : ''}
+                            </td>
+                            <td className="px-3 py-2 font-mono">
+                              {vigente ? (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                                  Vigente (en curso)
+                                </span>
+                              ) : (
+                                <span className="text-amber-700 dark:text-amber-300 font-bold">
+                                  {fFin} {hFin ? `${hFin} hs` : ''}
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-slate-500 dark:text-slate-400">
+                              {c.observacion || '-'}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="pt-2 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setTurnoHistorialModal(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
     </div>
   );
