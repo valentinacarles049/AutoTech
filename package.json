@@ -8,6 +8,8 @@
     "dev:client": "vite",
     "dev:server": "tsx watch server/index.ts",
     "server": "tsx server/index.ts",
+    "start": "tsx server/index.ts",
+    "start:prod": "npm run build && tsx server/index.ts",
     "build": "tsc && vite build",
     "test:bdd": "tsx test_bdd_modificar_cliente.ts && tsx test_bdd_modificar_vehiculo.ts && tsx test_bdd_registrar_solicitud_turno.ts && tsx test_bdd_consultar_disponibilidad.ts && tsx test_bdd_confirmar_turno.ts && tsx test_bdd_cancelar_turno.ts && tsx test_bdd_modificar_turno.ts && tsx test_bdd_consultar_turnos.ts && tsx test_bdd_finalizar_turno.ts && tsx test_bdd_registrar_presupuesto.ts",
     "test:bdd:hu6": "tsx test_bdd_modificar_cliente.ts",

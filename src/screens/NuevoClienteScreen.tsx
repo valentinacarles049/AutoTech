@@ -193,7 +193,7 @@ export const NuevoClienteScreen: React.FC = () => {
               Número de Cliente
             </span>
             <p id="numero-cliente-asignado" data-testid="numero-cliente" className="font-mono text-lg font-black text-slate-900 dark:text-white">
-              #{registeredClient.nroCliente || '1004'}
+              #{registeredClient.nroCliente || '---'}
             </p>
           </div>
 

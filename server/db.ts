@@ -6,8 +6,17 @@ import { buildCambioEstado } from '../src/utils/cambioEstadoTurno';
 
 dotenv.config();
 
-const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY || '';
+const rawSupabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
+const rawSupabaseKey = (process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY || '').trim();
+
+const isPlaceholderSupabase =
+  !rawSupabaseUrl ||
+  !rawSupabaseKey ||
+  rawSupabaseUrl.includes('tu-proyecto.supabase.co') ||
+  rawSupabaseKey.includes('tu-anon-key-aqui');
+
+const supabaseUrl = isPlaceholderSupabase ? '' : rawSupabaseUrl;
+const supabaseKey = isPlaceholderSupabase ? '' : rawSupabaseKey;
 
 export const isSupabaseConnected = Boolean(supabaseUrl && supabaseKey);
 
@@ -19,6 +28,7 @@ export const supabase = isSupabaseConnected
 // Sirve como fallback seguro si la base remota no está accesible o se ejecuta offline
 const defaultHashedPassword = bcrypt.hashSync('password123', 8);
 const adminHashedPassword = bcrypt.hashSync('admin123', 8);
+const nicoHashedPassword = bcrypt.hashSync('Gab5864', 8);
 
 export interface LocalEmployee {
   legajo: number;
@@ -93,6 +103,15 @@ export const localEmployeesSeed: LocalEmployee[] = [
     rol: 'Responsable de Recepción',
     activo: false, // HU-01 Criterio 3: Inactivo
     ultimo_acceso: null
+  },
+  {
+    legajo: 1007,
+    username: 'nico.palomeque77',
+    password: nicoHashedPassword,
+    nombre: 'Nicolas Ramon Palomeque',
+    rol: 'Administrador del sistema',
+    activo: true,
+    ultimo_acceso: null
   }
 ];
 
@@ -116,10 +135,21 @@ export interface LocalClient {
   estado: string;
 }
 
-let nextClientNumber = 1007;
+let nextClientNumber = 1009;
 
 export const getNextClientNumber = (): number => {
-  return nextClientNumber++;
+  const usedNumbers = new Set(
+    localClientsSeed
+      .map(c => Number(c.nro_cliente))
+      .filter(n => Number.isFinite(n) && n > 0)
+  );
+  const maxExisting = usedNumbers.size > 0 ? Math.max(...usedNumbers, 1000) : 1000;
+  let candidate = Math.max(nextClientNumber, maxExisting + 1);
+  while (usedNumbers.has(candidate)) {
+    candidate++;
+  }
+  nextClientNumber = candidate + 1;
+  return candidate;
 };
 
 export const localClientsSeed: LocalClient[] = [
@@ -169,8 +199,38 @@ export const localClientsSeed: LocalClient[] = [
     estado: 'Activo'
   },
   {
-    id: 'cli-6',
+    id: 'cli-4',
     nro_cliente: 1004,
+    nombre: 'Logística',
+    apellido: 'Centro',
+    tipo_documento: 'CUIT',
+    nro_documento: '30-55443322-1',
+    razon_social: 'Logística Centro S.A.',
+    email: 'logistica@centro.com.ar',
+    telefono: '0351-4771122',
+    localidad: 'Córdoba Capital',
+    nivel_fidelizacion: null,
+    fecha_alta: '2026-02-02',
+    estado: 'Activo'
+  },
+  {
+    id: 'cli-5',
+    nro_cliente: 1005,
+    nombre: 'Distribuidora',
+    apellido: 'Norte',
+    tipo_documento: 'CUIT',
+    nro_documento: '30-44998877-3',
+    razon_social: 'Distribuidora Norte S.A.',
+    email: 'ventas@distribuidoranorte.com.ar',
+    telefono: '0351-4990033',
+    localidad: 'Río Cuarto',
+    nivel_fidelizacion: null,
+    fecha_alta: '2026-02-03',
+    estado: 'Inactivo'
+  },
+  {
+    id: 'cli-6',
+    nro_cliente: 1006,
     nombre: 'Carlos',
     apellido: 'Morales',
     tipo_documento: 'DNI',
@@ -185,7 +245,7 @@ export const localClientsSeed: LocalClient[] = [
   },
   {
     id: 'cli-juan-perez',
-    nro_cliente: 1005,
+    nro_cliente: 1007,
     nombre: 'Juan',
     apellido: 'Pérez',
     tipo_documento: 'DNI',
@@ -200,7 +260,7 @@ export const localClientsSeed: LocalClient[] = [
   },
   {
     id: 'cli-maria-gomez',
-    nro_cliente: 1006,
+    nro_cliente: 1008,
     nombre: 'María',
     apellido: 'Gómez',
     tipo_documento: 'DNI',

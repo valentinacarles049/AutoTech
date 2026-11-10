@@ -17,7 +17,7 @@ import {
   localEmployeesSeed, 
   LocalClient 
 } from './server/db';
-import { modificarCliente, buscarClientes } from './server/controllers/clientes.controller';
+import { modificarCliente, buscarClientes, registrarCliente, eliminarClienteTest } from './server/controllers/clientes.controller';
 import { isScreenAllowed, getAllowedScreens } from './src/utils/permissions';
 import bcrypt from 'bcryptjs';
 
@@ -100,7 +100,7 @@ let juanPerez = localClientsSeed.find(c => c.nro_documento === '30123456');
 if (!juanPerez) {
   juanPerez = {
     id: 'cli-juan-perez',
-    nro_cliente: 1005,
+    nro_cliente: 1007,
     nombre: 'Juan',
     apellido: 'Pérez',
     tipo_documento: 'DNI',
@@ -185,7 +185,7 @@ let mariaGomez = localClientsSeed.find(c => c.nro_documento === '28999888');
 if (!mariaGomez) {
   mariaGomez = {
     id: 'cli-maria-gomez',
-    nro_cliente: 1006,
+    nro_cliente: 1008,
     nombre: 'María',
     apellido: 'Gómez',
     tipo_documento: 'DNI',
@@ -473,6 +473,41 @@ assert(
   resBusqDoc.getData().count === 1 && resBusqDoc.getData().clientes[0].nombre === 'María',
   'HU-05: Búsqueda por documento devuelve exactamente a María Gómez'
 );
+
+// HU-04: Regresión - Un cliente nuevo recibe un nro_cliente estrictamente único (no colisiona con #1007)
+const { req: reqAltaUnica, res: resAltaUnica } = createMockReqRes({
+  body: {
+    nombre: 'Lucía',
+    apellido: 'Fernández',
+    tipo_documento: 'DNI',
+    numero_documento: '35111222',
+    mail: 'lucia.fernandez@example.com',
+    telefono: '0351-155112233'
+  },
+  user: {
+    username: atencionUser!.username,
+    rol: atencionUser!.rol
+  }
+});
+await registrarCliente(reqAltaUnica, resAltaUnica);
+const altaData = resAltaUnica.getData();
+const allNros = localClientsSeed.map(c => c.nro_cliente);
+const hasUniqueNros = new Set(allNros).size === allNros.length;
+assert(
+  resAltaUnica.getStatusCode() === 201 &&
+  altaData?.cliente?.nro_cliente === 1009 &&
+  altaData?.cliente?.nro_cliente !== juanPerez.nro_cliente &&
+  altaData?.cliente?.nro_cliente !== mariaGomez.nro_cliente &&
+  hasUniqueNros,
+  'HU-04: Cliente nuevo (Lucía Fernández) recibe nro_cliente único (#1009) sin colisionar con Juan Pérez (#1007) ni otros clientes',
+  `Asignado: #${altaData?.cliente?.nro_cliente}, Juan Pérez: #${juanPerez.nro_cliente}, Únicos: ${hasUniqueNros}`
+);
+
+// Limpieza del cliente de prueba para mantener idempotencia
+const { req: reqCleanup, res: resCleanup } = createMockReqRes({
+  body: { tipo: 'DNI', numero: '35111222' }
+});
+await eliminarClienteTest(reqCleanup, resCleanup);
 
 console.log('\n======================================================================');
 console.log(`🏁 RESULTADO: ${passedTests} de ${totalTests} pruebas pasadas con éxito (${Math.round((passedTests / totalTests) * 100)}%)`);

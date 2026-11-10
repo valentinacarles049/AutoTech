@@ -32,6 +32,7 @@ import {
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { getDefaultScreenForRole, isScreenAllowed } from '../utils/permissions';
 import { normalizePatente } from '../utils/patente';
+import { apiUrl } from '../utils/api';
 import {
   buildCambioEstado,
   inicializarCambioEstadoTurno,
@@ -127,6 +128,14 @@ export const initialEmployees: Empleado[] = [
     nombre: 'Empleado Inactivo Test',
     rol: 'Responsable de Recepción',
     activo: false,
+  },
+  {
+    legajo: 1007,
+    username: 'nico.palomeque77',
+    password: 'Gab5864',
+    nombre: 'Nicolas Ramon Palomeque',
+    rol: 'Administrador del sistema',
+    activo: true,
   },
 ];
 
@@ -419,7 +428,7 @@ const initialClients: Client[] = [
     phone: '0351-4889900',
     localidad: 'Córdoba Capital',
     nivelFidelizacion: null, // Queda sin nivel de fidelización asignado
-    vehicleCount: 8,
+    vehicleCount: 3,
     status: 'Activo'
   },
   {
@@ -436,7 +445,7 @@ const initialClients: Client[] = [
     phone: '0353-4123456',
     localidad: 'Villa María',
     nivelFidelizacion: null,
-    vehicleCount: 4,
+    vehicleCount: 1,
     status: 'Activo'
   },
   {
@@ -469,7 +478,7 @@ const initialClients: Client[] = [
     phone: '0351-4771122',
     localidad: 'Córdoba Capital',
     nivelFidelizacion: null,
-    vehicleCount: 12,
+    vehicleCount: 0,
     status: 'Activo'
   },
   {
@@ -701,7 +710,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     // 1. Intentar autenticar contra el Backend API de Node.js / Express (HU-01 y HU-02)
     try {
-      const response = await fetch('http://localhost:4000/api/auth/login', {
+      const response = await fetch(apiUrl('/api/auth/login'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -874,7 +883,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const logout = async () => {
     // HU-02 Criterio 1: Al cerrar sesión se elimina la cookie de autenticación en el servidor
     try {
-      await fetch('http://localhost:4000/api/auth/logout', {
+      await fetch(apiUrl('/api/auth/logout'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -903,7 +912,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   useEffect(() => {
     async function verifyCookieSession() {
       try {
-        const response = await fetch('http://localhost:4000/api/auth/me', {
+        const response = await fetch(apiUrl('/api/auth/me'), {
           credentials: 'include'
         });
 
@@ -992,80 +1001,143 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [clients, setClients] = useState<Client[]>(initialClients);
   const [selectedClientId, setSelectedClientId] = useState<string>('cli-1');
   const [vehicles, setVehicles] = useState<Vehicle[]>(initialVehicles);
+  const hasInitialComercialSyncRef = React.useRef(false);
 
-  // Carga inicial reactiva desde Supabase (si está configurado)
+  const mapRawVehicleToFrontend = (v: any): Vehicle => {
+    const plate = String(v.dominio || v.plate || '');
+    const fallbackVeh = initialVehicles.find(
+      iv => normalizePatente(iv.plate) === normalizePatente(plate)
+    );
+    const marca = String(v.marca || '');
+    const modelo = String(v.modelo || '');
+    const year = Number(v.anio ?? v.año ?? v.year ?? new Date().getFullYear());
+    const mileage = Number(v.kilometraje_actual ?? v.kilometrajeActual ?? v.mileage ?? 0);
+    const clientId = String(v.cliente_id || v.clientId || v.clienteId || '');
+    return {
+      plate,
+      dominio: plate,
+      brandModel: `${marca} ${modelo}`.trim() || fallbackVeh?.brandModel || plate,
+      marca: marca || fallbackVeh?.marca,
+      modelo: modelo || fallbackVeh?.modelo,
+      year,
+      año: year,
+      vin: v.vin || fallbackVeh?.vin || `VIN-${plate}`,
+      mileage,
+      kilometrajeActual: mileage,
+      clientId,
+      clienteId: clientId,
+      status: v.estado || v.status || 'Activo'
+    };
+  };
+
+  const mapRawClientToFrontend = (c: any, mappedVehicles: Vehicle[]): Client => {
+    const fallbackNombre = c.nombre || (c.razon_social ? String(c.razon_social).split(' ')[0] : 'Cliente');
+    const fallbackApellido = c.apellido || (c.razon_social ? String(c.razon_social).split(' ').slice(1).join(' ') || 'AutoTech' : 'AutoTech');
+    const fullName = `${fallbackNombre} ${fallbackApellido}`.trim();
+    const displayName = c.razon_social
+      ? (String(c.razon_social).toLowerCase().startsWith(fullName.toLowerCase())
+          ? String(c.razon_social)
+          : `${fullName} (${c.razon_social})`)
+      : fullName;
+
+    return {
+      id: c.id,
+      nroCliente: Number(c.nro_cliente ?? c.nroCliente ?? 0) || undefined,
+      nombre: fallbackNombre,
+      apellido: fallbackApellido,
+      name: displayName,
+      razonSocial: c.razon_social || undefined,
+      cuitDni: c.nro_documento,
+      nroDocumento: c.nro_documento,
+      tipoDocumento: c.tipo_documento || 'CUIT',
+      phone: c.telefono || 'Sin teléfono',
+      telefono: c.telefono || 'Sin teléfono',
+      email: c.email || 'contacto@autotech.com.ar',
+      localidad: c.localidad || undefined,
+      nivelFidelizacion: c.nivel_fidelizacion || null,
+      fechaAlta: c.fecha_alta,
+      vehicleCount: mappedVehicles.filter(v => v.clientId === c.id).length,
+      status: c.estado === 'Inactivo' ? 'Inactivo' : 'Activo'
+    };
+  };
+
+  const syncComercialFromBackend = async (): Promise<boolean> => {
+    try {
+      const [cliResp, vehResp] = await Promise.all([
+        fetch(apiUrl('/api/clientes'), { credentials: 'include' }),
+        fetch(apiUrl('/api/vehiculos'), { credentials: 'include' })
+      ]);
+
+      if (!cliResp.ok || !vehResp.ok) return false;
+
+      const cliData = await cliResp.json();
+      const vehData = await vehResp.json();
+      const rawClients = Array.isArray(cliData.clientes) ? cliData.clientes : [];
+      const rawVehicles = Array.isArray(vehData.vehiculos) ? vehData.vehiculos : [];
+
+      if (rawClients.length === 0) return false;
+
+      const mappedVehicles: Vehicle[] = rawVehicles.map(mapRawVehicleToFrontend);
+      const mappedClients: Client[] = rawClients.map((c: any) =>
+        mapRawClientToFrontend(c, mappedVehicles)
+      );
+
+      setVehicles(mappedVehicles);
+      setClients(mappedClients);
+      setSelectedClientId(prevId =>
+        mappedClients.some(c => c.id === prevId) ? prevId : mappedClients[0].id
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  // Carga inicial reactiva desde API Backend (Express) y Supabase (si está configurado)
   useEffect(() => {
-    if (!isSupabaseConfigured || !supabase) return;
+    let active = true;
 
-    async function loadDataFromSupabase() {
+    async function loadInitialComercialData() {
+      const loadedFromApi = await syncComercialFromBackend();
+      if (!active || !isSupabaseConfigured || !supabase) return;
+
       try {
-        const { data: dbClients } = await supabase!
-          .from('clientes')
-          .select('*')
-          .order('fecha_alta', { ascending: false });
+        if (!loadedFromApi) {
+          const { data: dbClients } = await supabase
+            .from('clientes')
+            .select('*')
+            .order('fecha_alta', { ascending: false });
 
-        const { data: dbVehicles } = await supabase!
-          .from('vehiculos')
-          .select('*');
+          const { data: dbVehicles } = await supabase
+            .from('vehiculos')
+            .select('*');
 
-        if (dbClients && dbClients.length > 0) {
-          const mappedClients: Client[] = dbClients.map(c => {
-            const fallbackNombre = c.nombre || (c.razon_social ? c.razon_social.split(' ')[0] : 'Cliente');
-            const fallbackApellido = c.apellido || (c.razon_social ? c.razon_social.split(' ').slice(1).join(' ') || 'AutoTech' : 'AutoTech');
-            return {
-              id: c.id,
-              nroCliente: c.nro_cliente,
-              nombre: fallbackNombre,
-              apellido: fallbackApellido,
-              name: c.razon_social || `${fallbackNombre} ${fallbackApellido}`,
-              razonSocial: c.razon_social || undefined,
-              cuitDni: c.nro_documento,
-              nroDocumento: c.nro_documento,
-              tipoDocumento: c.tipo_documento || 'CUIT',
-              phone: c.telefono || 'Sin teléfono',
-              telefono: c.telefono || 'Sin teléfono',
-              email: c.email || 'contacto@autotech.com.ar',
-              localidad: c.localidad || undefined,
-              nivelFidelizacion: c.nivel_fidelizacion || null,
-              fechaAlta: c.fecha_alta,
-              vehicleCount: (dbVehicles || []).filter(v => v.cliente_id === c.id).length,
-              status: c.estado === 'Inactivo' ? 'Inactivo' : 'Activo'
-            };
-          });
-          setClients(mappedClients);
-          if (mappedClients[0]) {
-            setSelectedClientId(mappedClients[0].id);
+          const mappedVehicles: Vehicle[] = (dbVehicles || []).map(mapRawVehicleToFrontend);
+
+          if (active && dbClients && dbClients.length > 0) {
+            const mappedClients: Client[] = dbClients.map((c: any) =>
+              mapRawClientToFrontend(c, mappedVehicles)
+            );
+            setClients(mappedClients);
+            setSelectedClientId(prevId =>
+              mappedClients.some(c => c.id === prevId) ? prevId : mappedClients[0].id
+            );
           }
-        }
 
-        if (dbVehicles && dbVehicles.length > 0) {
-          const mappedVehicles: Vehicle[] = dbVehicles.map(v => ({
-            plate: v.dominio,
-            dominio: v.dominio,
-            brandModel: `${v.marca} ${v.modelo}`.trim(),
-            marca: v.marca,
-            modelo: v.modelo,
-            year: v.anio,
-            año: v.anio,
-            vin: `VIN-${v.dominio}`,
-            mileage: v.kilometraje_actual,
-            kilometrajeActual: v.kilometraje_actual,
-            clientId: v.cliente_id,
-            clienteId: v.cliente_id,
-            status: 'Activo'
-          }));
-          setVehicles(mappedVehicles);
-          if (mappedVehicles[0]) {
-            selectVehicleForReception(mappedVehicles[0].plate);
+          if (active && mappedVehicles.length > 0) {
+            setVehicles(mappedVehicles);
+            if (mappedVehicles[0]) {
+              selectVehicleForReception(mappedVehicles[0].plate);
+            }
           }
         }
 
         // Cargar empleados desde Supabase si la tabla existe
-        const { data: dbEmployees } = await supabase!
+        const { data: dbEmployees } = await supabase
           .from('empleados')
           .select('legajo, username, password, nombre, activo, roles ( nombre_rol )');
 
-        if (dbEmployees && dbEmployees.length > 0) {
+        if (active && dbEmployees && dbEmployees.length > 0) {
           const mappedEmployees: Empleado[] = dbEmployees.map(e => ({
             legajo: e.legajo,
             username: e.username,
@@ -1081,8 +1153,22 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
     }
 
-    loadDataFromSupabase();
+    loadInitialComercialData();
+    return () => {
+      active = false;
+    };
   }, []);
+
+  // Re-sincronizar clientes y vehículos desde la API al navegar al módulo comercial o recepción
+  useEffect(() => {
+    if (!hasInitialComercialSyncRef.current) {
+      hasInitialComercialSyncRef.current = true;
+      return;
+    }
+    if (currentScreen === 'comercial' || currentScreen === 'nuevo-cliente' || currentScreen === 'recepcion') {
+      void syncComercialFromBackend();
+    }
+  }, [currentScreen]);
 
   const addClient = async (newCli: Omit<Client, 'id' | 'vehicleCount' | 'status'>): Promise<{ success: boolean; error?: string; message?: string; client?: Client }> => {
     const valNombre = (newCli.nombre || '').trim();
@@ -1126,11 +1212,22 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
 
     // 4. Intentar registrar a través de la API Backend
-    let assignedNroCliente = Math.max(...clients.map(c => c.nroCliente || 1000), 1005) + 1;
-    let createdId = `cli-${Date.now()}`;
+    const usedClientNumbers = new Set(
+      clients
+        .map(c => Number(c.nroCliente))
+        .filter(n => Number.isFinite(n) && n > 0)
+    );
+    let assignedNroCliente = usedClientNumbers.size > 0
+      ? Math.max(...usedClientNumbers, 1000) + 1
+      : 1001;
+    while (usedClientNumbers.has(assignedNroCliente)) {
+      assignedNroCliente++;
+    }
+    let createdId = `cli-${Date.now()}-${assignedNroCliente}`;
+    let apiSucceeded = false;
 
     try {
-      const response = await fetch('http://localhost:4000/api/clientes', {
+      const response = await fetch(apiUrl('/api/clientes'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -1160,9 +1257,21 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             error: 'El mail debe tener formato válido'
           };
         }
+        return {
+          success: false,
+          error: resData.error || 'Error al registrar el cliente'
+        };
       } else if (resData.cliente) {
+        apiSucceeded = true;
         createdId = resData.cliente.id || createdId;
-        assignedNroCliente = resData.cliente.nro_cliente || assignedNroCliente;
+        const apiNro = Number(resData.cliente.nro_cliente);
+        if (Number.isFinite(apiNro) && apiNro > 0) {
+          if (!usedClientNumbers.has(apiNro)) {
+            assignedNroCliente = apiNro;
+          } else {
+            void syncComercialFromBackend();
+          }
+        }
       }
     } catch {
       // Offline / fallback local
@@ -1192,8 +1301,8 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setClients(prev => [client, ...prev]);
     setSelectedClientId(createdId);
 
-    // Persistir en Supabase si está disponible
-    if (isSupabaseConfigured && supabase) {
+    // Persistir en Supabase si Express API no manejó la inserción y Supabase está disponible directamente
+    if (!apiSucceeded && isSupabaseConfigured && supabase) {
       try {
         const { data } = await supabase
           .from('clientes')
@@ -1294,7 +1403,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     // Actualizar en backend Node/Express
     try {
-      const response = await fetch(`http://localhost:4000/api/clientes/${encodeURIComponent(current.id)}`, {
+      const response = await fetch(apiUrl(`/api/clientes/${encodeURIComponent(current.id)}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -1427,7 +1536,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     // 3. Persistir en Backend Express API
     try {
-      const response = await fetch('http://localhost:4000/api/vehiculos', {
+      const response = await fetch(apiUrl('/api/vehiculos'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -1570,7 +1679,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     // Actualizar en backend Node/Express
     try {
-      const response = await fetch(`http://localhost:4000/api/vehiculos/${encodeURIComponent(storedOrigPlate)}`, {
+      const response = await fetch(apiUrl(`/api/vehiculos/${encodeURIComponent(storedOrigPlate)}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -1814,7 +1923,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     let active = true;
     async function syncTurnosFromBackend() {
       try {
-        const resp = await fetch('http://localhost:4000/api/turnos', {
+        const resp = await fetch(apiUrl('/api/turnos'), {
           credentials: 'include'
         });
         if (!resp.ok) return;
@@ -1942,7 +2051,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     // Intentar consultar al backend Express
     try {
-      const resp = await fetch(`http://localhost:4000/api/turnos/disponibilidad?sucursal=${encodeURIComponent(suc.nombre)}&fecha=${encodeURIComponent(norm.ddmmyyyy)}`);
+      const resp = await fetch(apiUrl(`/api/turnos/disponibilidad?sucursal=${encodeURIComponent(suc.nombre)}&fecha=${encodeURIComponent(norm.ddmmyyyy)}`));
       if (resp.ok) {
         const data = await resp.json();
         return data;
@@ -2052,7 +2161,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     let backendHistorial: string[] | undefined;
 
     try {
-      const response = await fetch('http://localhost:4000/api/turnos', {
+      const response = await fetch(apiUrl('/api/turnos'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -2157,7 +2266,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     // Intentar confirmación en backend Express
     try {
-      const response = await fetch('http://localhost:4000/api/turnos/confirmar', {
+      const response = await fetch(apiUrl('/api/turnos/confirmar'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -2415,7 +2524,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
 
     try {
-      const response = await fetch('http://localhost:4000/api/turnos/cancelar', {
+      const response = await fetch(apiUrl('/api/turnos/cancelar'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -2581,7 +2690,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
 
     try {
-      const response = await fetch('http://localhost:4000/api/turnos/modificar', {
+      const response = await fetch(apiUrl('/api/turnos/modificar'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -2916,7 +3025,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     // Intentar en el backend Express
     try {
-      const response = await fetch('http://localhost:4000/api/turnos/finalizar', {
+      const response = await fetch(apiUrl('/api/turnos/finalizar'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -3084,7 +3193,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const normHoy = normalizeContextDate(rawHoy);
 
     try {
-      const response = await fetch('http://localhost:4000/api/turnos/ausente', {
+      const response = await fetch(apiUrl('/api/turnos/ausente'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -3258,7 +3367,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const rawItems = data.items || [];
 
     try {
-      const response = await fetch('http://localhost:4000/api/presupuestos/public-register', {
+      const response = await fetch(apiUrl('/api/presupuestos/public-register'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -3459,7 +3568,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const targetTurnoId = String(data.turnoId || data.turno_id || '').trim();
 
     try {
-      const response = await fetch('http://localhost:4000/api/presupuestos/modificar', {
+      const response = await fetch(apiUrl('/api/presupuestos/modificar'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -3547,7 +3656,7 @@ export const WorkshopProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const fechaActual = String(data.fechaActual || '01/12/2026').trim();
 
     try {
-      const response = await fetch('http://localhost:4000/api/presupuestos/verificar-vencimiento', {
+      const response = await fetch(apiUrl('/api/presupuestos/verificar-vencimiento'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

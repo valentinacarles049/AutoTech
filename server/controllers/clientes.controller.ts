@@ -95,7 +95,7 @@ export const registrarCliente = async (req: Request, res: Response): Promise<voi
 
     // Asignación de número de cliente y registro
     const nroCliente = getNextClientNumber();
-    const nuevoId = `cli-${Date.now()}`;
+    const nuevoId = `cli-${Date.now()}-${nroCliente}`;
     const today = new Date().toISOString().split('T')[0];
 
     const nuevoCliente: LocalClient = {
@@ -574,7 +574,7 @@ export const modificarCliente = async (req: Request, res: Response): Promise<voi
     } else {
       currentClient = {
         id: currentId,
-        nro_cliente: dbClient?.nro_cliente || 1005,
+        nro_cliente: dbClient?.nro_cliente || getNextClientNumber(),
         nombre: valNombre,
         apellido: valApellido,
         tipo_documento: valTipoDoc as 'DNI' | 'CUIT' | 'Pasaporte',

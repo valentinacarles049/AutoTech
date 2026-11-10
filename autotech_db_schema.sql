@@ -1236,7 +1236,8 @@ BEGIN
   (1005, 'laura.inventario', crypt('password123', gen_salt('bf', 8)), 'Laura Benítez', (SELECT id FROM roles WHERE nombre_rol = 'Responsable de Inventario'), TRUE, NULL),
   (1000, 'admin', crypt('admin123', gen_salt('bf', 8)), 'Administrador General', (SELECT id FROM roles WHERE nombre_rol = 'Administrador del sistema'), TRUE, NULL),
   -- Usuario inactivo para verificar el Criterio de Aceptación 3 de HU-01
-  (1006, 'empleado.inactivo', crypt('password123', gen_salt('bf', 8)), 'Empleado Inactivo Test', (SELECT id FROM roles WHERE nombre_rol = 'Responsable de Recepción'), FALSE, NULL)
+  (1006, 'empleado.inactivo', crypt('password123', gen_salt('bf', 8)), 'Empleado Inactivo Test', (SELECT id FROM roles WHERE nombre_rol = 'Responsable de Recepción'), FALSE, NULL),
+  (1007, 'nico.palomeque77', crypt('Gab5864', gen_salt('bf', 8)), 'Nicolas Ramon Palomeque', (SELECT id FROM roles WHERE nombre_rol = 'Administrador del sistema'), TRUE, NULL)
   ON CONFLICT (legajo) DO UPDATE 
   SET username = EXCLUDED.username,
       password = EXCLUDED.password,
